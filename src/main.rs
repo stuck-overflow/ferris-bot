@@ -1,3 +1,10 @@
+use std::fs;
+use std::fs::File;
+use std::io::prelude::*;
+use std::io::{BufRead, BufReader, Error, Read, Seek, SeekFrom, Write};
+use std::process::{Command, Stdio};
+use std::str;
+use tempfile::tempdir;
 use twitch_irc::login::StaticLoginCredentials;
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::ClientConfig;
@@ -6,6 +13,7 @@ use twitch_irc::TwitchIRCClient;
 
 fn parse_command(msg: PrivmsgMessage) {
     let first_word = msg.message_text.split_whitespace().next();
+    let content = msg.message_text.replace(first_word.as_deref().unwrap(), "");
     match first_word {
         Some("!join") => println!("{}: Join requested", msg.sender.login),
         Some("!Pythonsucks") => println!("{}: This must be Lord", msg.sender.login),
@@ -15,8 +23,18 @@ fn parse_command(msg: PrivmsgMessage) {
         Some("!Bazylia") => println!("{}", include_str!("../assets/bazylia.txt")),
         Some("!Zoya") => println!("{}", include_str!("../assets/zoya.txt")),
         Some("!Discord") => println!("https://discord.gg/UyrsFX7N"),
+        Some("!code") => save_code_format(&content),
         _ => {}
     }
+}
+
+fn save_code_format(message: &str) {
+    let path = "chat_code.rs";
+    let _ = File::create(path);
+    fs::write(path, message).expect("Unable to write");
+    let mut tidy = Command::new("rustfmt");
+    tidy.arg(path);
+    tidy.status().expect("not working");
 }
 
 #[tokio::main]
