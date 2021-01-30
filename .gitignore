@@ -1,3 +1,5 @@
 /target
 Cargo.lock
 chat_code.rs
+twitchauth.toml
+twitchauthtoken.jsontwitchauth.toml
