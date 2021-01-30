@@ -1,10 +1,7 @@
 use std::fs;
 use std::fs::File;
-use std::io::prelude::*;
-use std::io::{BufRead, BufReader, Error, Read, Seek, SeekFrom, Write};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::str;
-use tempfile::tempdir;
 use twitch_irc::login::StaticLoginCredentials;
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::ClientConfig;
@@ -14,15 +11,18 @@ use twitch_irc::TwitchIRCClient;
 fn parse_command(msg: PrivmsgMessage) {
     let first_word = msg.message_text.split_whitespace().next();
     let content = msg.message_text.replace(first_word.as_deref().unwrap(), "");
+    let first_word = first_word.unwrap().to_lowercase();
+    let first_word = Some(first_word.as_str());
+
     match first_word {
         Some("!join") => println!("{}: Join requested", msg.sender.login),
-        Some("!Pythonsucks") => println!("{}: This must be Lord", msg.sender.login),
-        Some("!Stonk") => println!("{}: yOu shOULd Buy AMC sTOnKS", msg.sender.login),
-        Some("!C++") => println!("{}: segmentation fault", msg.sender.login),
-        Some("!Dave") => println!("{}", include_str!("../assets/dave.txt")),
-        Some("!Bazylia") => println!("{}", include_str!("../assets/bazylia.txt")),
-        Some("!Zoya") => println!("{}", include_str!("../assets/zoya.txt")),
-        Some("!Discord") => println!("https://discord.gg/UyrsFX7N"),
+        Some("!pythonsucks") => println!("{}: This must be Lord", msg.sender.login),
+        Some("!stonk") => println!("{}: yOu shOULd Buy AMC sTOnKS", msg.sender.login),
+        Some("!c++") => println!("{}: segmentation fault", msg.sender.login),
+        Some("!dave") => println!("{}", include_str!("../assets/dave.txt")),
+        Some("!bazylia") => println!("{}", include_str!("../assets/bazylia.txt")),
+        Some("!zoya") => println!("{}", include_str!("../assets/zoya.txt")),
+        Some("!discord") => println!("https://discord.gg/UyrsFX7N"),
         Some("!code") => save_code_format(&content),
         _ => {}
     }
