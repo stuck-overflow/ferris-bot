@@ -1,24 +1,23 @@
 use twitch_irc::login::StaticLoginCredentials;
+use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::ClientConfig;
 use twitch_irc::TCPTransport;
 use twitch_irc::TwitchIRCClient;
-use twitch_irc::message::{IRCMessage,PrivmsgMessage, ServerMessage};
 
 fn parse_command(msg: PrivmsgMessage) {
     let first_word = msg.message_text.split_whitespace().next();
     match first_word {
         Some("!join") => println!("{}: Join requested", msg.sender.login),
-        Some("!Pythonsucks")=> println!("{}: This must be Lord", msg.sender.login),
-        Some("!Stonk")=> println!("{}: yOu shOULd Buy AMC sTOnKS", msg.sender.login),
-        Some("!C++")=> println!("{}: segmentation fault", msg.sender.login),
-        Some("!Dave")=> println!("{}", include_str!("../assets/dave.txt")),
-        Some("!Bazylia") => println!("{}", include_str!("../assets/bazylia.txt")),    
+        Some("!Pythonsucks") => println!("{}: This must be Lord", msg.sender.login),
+        Some("!Stonk") => println!("{}: yOu shOULd Buy AMC sTOnKS", msg.sender.login),
+        Some("!C++") => println!("{}: segmentation fault", msg.sender.login),
+        Some("!Dave") => println!("{}", include_str!("../assets/dave.txt")),
+        Some("!Bazylia") => println!("{}", include_str!("../assets/bazylia.txt")),
         Some("!Zoya") => println!("{}", include_str!("../assets/zoya.txt")),
         Some("!Discord") => println!("https://discord.gg/UyrsFX7N"),
-        _ => {},
+        _ => {}
     }
 }
-
 
 #[tokio::main]
 pub async fn main() {
