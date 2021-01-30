@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 use std::str;
 use tempfile::tempdir;
 use twitch_irc::login::StaticLoginCredentials;
-use twitch_irc::message::{IRCMessage, PrivmsgMessage, ServerMessage};
+use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::ClientConfig;
 use twitch_irc::TCPTransport;
 use twitch_irc::TwitchIRCClient;
@@ -26,20 +26,6 @@ fn parse_command(msg: PrivmsgMessage) {
         Some("!code") => save_code_format(&content),
         _ => {}
     }
-}
-
-fn temp_code_format(message: &str) {
-    println!("{}", message);
-    let dir = tempdir().unwrap();
-    let mut file_path = dir.path().join("chat_code.rs");
-    let path = File::create(&file_path);
-    println!("{}", file_path.display());
-    let _ = fs::write(&file_path, message).expect("Unable to write");
-    let mut tidy = Command::new("rustfmt");
-    tidy.arg(&file_path);
-    tidy.status().expect("not working");
-    let content = fs::read_to_string(&file_path).expect("error reading file");
-    println!("{}", &content);
 }
 
 fn save_code_format(message: &str) {
