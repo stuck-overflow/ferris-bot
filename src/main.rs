@@ -9,32 +9,30 @@ use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::ClientConfig;
 use twitch_irc::TCPTransport;
 use twitch_irc::TwitchIRCClient;
-
-use serenity::prelude::*;
-use serenity::model::gateway::Ready;
 use serenity::model::channel::Message;
+use serenity::model::gateway::Ready;
+use serenity::prelude::*;
 
-const TOKEN: &str = "ODA1ODQ4MjExMTA5MTgzNTQ4.YBg2oQ.GZZ2f9oTj9Fur2R5W2h3w7akPNg";
+const TOKEN: &str = "";
 
 struct Handler;
 
-impl EventHandler for Handler{
-    fn message(&self, ctx: Context, msg: Message){
+impl EventHandler for Handler {
+    fn message(&self, ctx: Context, msg: Message) {
         if msg.content == "?ping" {
-            if let Err(why) = msg.channel_id.say(&ctx.http, "I'M ALIVE!!!!"){
+            if let Err(why) = msg.channel_id.say(&ctx.http, "I'M ALIVE!!!!") {
                 println!("Error giving message: {:?}", why)
             }
         }
     }
-    fn ready(&self, _:Context, ready:Ready){
+    fn ready(&self, _: Context, ready: Ready) {
         println!("{} is ready", ready.user.name);
     }
-
 }
 
-fn discord(){
+fn discord() {
     let mut client = Client::new(&TOKEN, Handler).expect("Error creating client");
-    if let Err(msg) = client.start(){
+    if let Err(msg) = client.start() {
         println!("Error: {:?}", msg);
     }
 }
@@ -67,7 +65,6 @@ fn save_code_format(message: &str) {
     tidy.arg(path);
     tidy.status().expect("not working");
 }
-
 
 #[tokio::main]
 pub async fn main() {
