@@ -1,7 +1,11 @@
 extern crate serenity;
 
+use serenity::model::channel::Message;
+use serenity::model::gateway::Ready;
+use serenity::prelude::*;
 use std::fs;
 use std::fs::File;
+use std::io::prelude::*;
 use std::process::Command;
 use std::str;
 use twitch_irc::login::StaticLoginCredentials;
@@ -9,11 +13,6 @@ use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::ClientConfig;
 use twitch_irc::TCPTransport;
 use twitch_irc::TwitchIRCClient;
-use serenity::model::channel::Message;
-use serenity::model::gateway::Ready;
-use serenity::prelude::*;
-
-const TOKEN: &str = "";
 
 struct Handler;
 
@@ -31,7 +30,11 @@ impl EventHandler for Handler {
 }
 
 fn discord() {
-    let mut client = Client::new(&TOKEN, Handler).expect("Error creating client");
+    let mut file = File::open(".token").expect("Error loading Discord token");
+    let mut token = String::new();
+    file.read_to_string(&mut token)
+        .expect("Token file not found");
+    let mut client = Client::new(&token, Handler).expect("Error creating client");
     if let Err(msg) = client.start() {
         println!("Error: {:?}", msg);
     }
