@@ -1,11 +1,6 @@
 extern crate serenity;
-
-use serenity::model::channel::Message;
-use serenity::model::gateway::Ready;
-use serenity::prelude::*;
 use std::fs;
 use std::fs::File;
-use std::io::prelude::*;
 use std::process::Command;
 use std::str;
 use twitch_irc::login::StaticLoginCredentials;
@@ -13,32 +8,7 @@ use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::ClientConfig;
 use twitch_irc::TCPTransport;
 use twitch_irc::TwitchIRCClient;
-
-struct Handler;
-
-impl EventHandler for Handler {
-    fn message(&self, ctx: Context, msg: Message) {
-        if msg.content == "?ping" {
-            if let Err(why) = msg.channel_id.say(&ctx.http, "I'M ALIVE!!!!") {
-                println!("Error giving message: {:?}", why)
-            }
-        }
-    }
-    fn ready(&self, _: Context, ready: Ready) {
-        println!("{} is ready", ready.user.name);
-    }
-}
-
-fn discord() {
-    let mut file = File::open(".token").expect("Error loading Discord token");
-    let mut token = String::new();
-    file.read_to_string(&mut token)
-        .expect("Token file not found");
-    let mut client = Client::new(&token, Handler).expect("Error creating client");
-    if let Err(msg) = client.start() {
-        println!("Error: {:?}", msg);
-    }
-}
+mod discord_events;
 
 fn parse_command(msg: PrivmsgMessage) {
     let first_word = msg.message_text.split_whitespace().next();
@@ -72,7 +42,7 @@ fn save_code_format(message: &str) {
 #[tokio::main]
 pub async fn main() {
     // default configuration is to join chat as anonymous.
-    discord();
+    discord_events::activate_discord_bot();
     let config = ClientConfig::default();
     let (mut incoming_messages, client) =
         TwitchIRCClient::<TCPTransport, StaticLoginCredentials>::new(config);
