@@ -8,7 +8,7 @@ use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::ClientConfig;
 use twitch_irc::TCPTransport;
 use twitch_irc::TwitchIRCClient;
-mod discord_events;
+mod discord_commands;
 
 fn parse_command(msg: PrivmsgMessage) {
     let first_word = msg.message_text.split_whitespace().next();
@@ -42,7 +42,7 @@ fn save_code_format(message: &str) {
 #[tokio::main]
 pub async fn main() {
     // default configuration is to join chat as anonymous.
-    discord_events::activate_discord_bot();
+    discord_commands::init_discord_bot().await;
     let config = ClientConfig::default();
     let (mut incoming_messages, client) =
         TwitchIRCClient::<TCPTransport, StaticLoginCredentials>::new(config);
