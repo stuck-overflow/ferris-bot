@@ -1480,6 +1480,7 @@ dependencies = [
 name = "twitch_queue_bot"
 version = "0.1.0"
 dependencies = [
+ "lazy_static",
  "serenity",
  "tempfile",
  "tokio",

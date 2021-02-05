@@ -23,13 +23,11 @@ use serenity::{
     model::{
         channel::{Channel, Message},
         gateway::Ready,
-        id::UserId,
+        id::{ChannelId, UserId},
         permissions::Permissions,
     },
     utils::{content_safe, ContentSafeOptions},
 };
-use std::fs::File;
-use std::io::prelude::*;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Write,
@@ -234,15 +232,7 @@ fn _dispatch_error_no_macro<'fut>(
     .boxed()
 }
 
-pub async fn init_discord_bot() {
-    // Configure the client with your Discord bot token in the environment.
-    let mut file = File::open(".token").expect("Error loading Discord token");
-    let mut token = String::new();
-    file.read_to_string(&mut token)
-        .expect("Token file not found");
-
-    let http = Http::new_with_token(&token);
-
+pub async fn init_discord_bot(http: Arc<Http>, token: &str) {
     // We will fetch your bot's owners and id
     let (owners, bot_id) = match http.get_current_application_info().await {
         Ok(info) => {
@@ -561,6 +551,15 @@ async fn dog(ctx: &Context, msg: &Message) -> CommandResult {
 #[command]
 #[description = "This command does absolutley nothing mate"]
 async fn nothing(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    nothing_impl(&ctx.http, msg.channel_id, args).await?;
+    Ok(())
+}
+
+pub async fn nothing_impl(
+    client: &Http,
+    channel_id: ChannelId,
+    args: Args,
+) -> Result<(), SerenityError> {
     let say_content = if args.is_empty() {
         ":poop: this does nothing.".to_string()
     } else {
@@ -570,8 +569,7 @@ async fn nothing(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         )
     };
 
-    msg.channel_id.say(&ctx.http, say_content).await?;
-
+    channel_id.say(client, say_content).await?;
     Ok(())
 }
 

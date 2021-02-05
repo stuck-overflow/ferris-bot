@@ -11,3 +11,4 @@ twitch-irc = "2.1.0"
 tokio = { version = "1.1.0", features = ["full"] }
 tempfile = "3"
 serenity = "0.10"
+lazy_static = "1.4.0"
