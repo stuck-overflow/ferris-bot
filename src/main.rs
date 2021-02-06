@@ -10,11 +10,11 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use std::str;
 use std::sync::Arc;
 use structopt::StructOpt;
 use twitch_irc::login::LoginCredentials;
 use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken};
-use std::str;
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::ClientConfig;
 use twitch_irc::TCPTransport;
@@ -25,7 +25,8 @@ mod discord_commands;
 async fn parse_command<T: Transport, L: LoginCredentials>(
     msg: PrivmsgMessage,
     client: &Arc<TwitchIRCClient<T, L>>,
-    http: &Arc<Http>) {
+    http: &Arc<Http>,
+) {
     let first_word = msg.message_text.split_whitespace().next();
     let content = msg.message_text.replace(first_word.as_deref().unwrap(), "");
     let first_word = first_word.unwrap().to_lowercase();
@@ -90,7 +91,7 @@ async fn parse_command<T: Transport, L: LoginCredentials>(
             .unwrap(),
         Some("!nothing") => nothing(&http).await,
         Some("!code") => save_code_format(&http, &content).await,
-        _ => {},
+        _ => {}
     }
 }
 
@@ -254,7 +255,7 @@ pub async fn main() {
     let mut token = String::new();
     file.read_to_string(&mut token)
         .expect("Token file not found");
-    
+
     let token = token.trim();
 
     let http = Arc::new(Http::new_with_token(&token));
