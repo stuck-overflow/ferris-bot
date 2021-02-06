@@ -69,7 +69,6 @@ impl TokenStorage for CustomTokenStorage {
         // that token for future invocations
         self.last_token_json = Some(serde_json::to_string(&token).unwrap());
         // TODO WRITE TO FILE
-
         Ok(())
     }
 }
