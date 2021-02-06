@@ -197,7 +197,7 @@ pub struct MyUserAccessToken {
 pub async fn main() {
     let args = Cli::from_args();
 
-    // Twitch configuration routine.
+    // Twitch configuration routine, see README.md for usage.
     let twitch_auth = fs::read_to_string(args.credentials_file).unwrap();
     let twitch_auth: TwitchAuth = toml::from_str(&twitch_auth).unwrap();
 
@@ -211,7 +211,7 @@ pub async fn main() {
             println!("Please set --auth_code. Aborting.");
             std::process::exit(1);
         }
-        println!("curl -X POST 'https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=http://localhost' > firsttoken.json",
+        println!("curl -X POST 'https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=http://localhost' > /tmp/firsttoken.json",
             twitch_auth.client_id,
             twitch_auth.secret,
             args.auth_code);
