@@ -45,8 +45,7 @@ async fn nothing(http: &Arc<Http>) {
 
 async fn send_code_discord(http: &Arc<Http>, code_file: &Path) {
     let code_ex = fs::read_to_string(code_file).expect("nop you nop read file");
-    let result = format!("fn main() {{\r\n{}\r}}", code_ex);
-    let code_ex = format!("{}{}{}", "```rs\n", result, "```");
+    let code_ex = format!("{}{}{}", "```rs\n", code_ex, "```");
     let id: u64 = 805839708198404106;
     let _ = ChannelId(id).say(http, code_ex).await;
 }
@@ -90,7 +89,7 @@ pub async fn main() {
     });
 
     // join a channel
-    client.join("fisken_ai".to_owned());
+    client.join("stuck_overflow".to_owned());
 
     discord_commands::init_discord_bot(Arc::clone(&http), &token).await;
     // keep the tokio executor alive.
