@@ -14,3 +14,4 @@ structopt = "0.3.13"
 tokio = { version = "1.1.0", features = ["full"] }
 toml = "0.4.2"
 twitch-irc = { version = "2.1.0", features = ["refreshing-token"] }
+chrono = "0.4"

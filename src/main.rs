@@ -1,31 +1,85 @@
 use async_trait::async_trait;
-use serde::Deserialize;
+use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::fs::File;
-use std::path::Path;
 use std::process::Command;
+use std::sync::Arc;
 use structopt::StructOpt;
+use twitch_irc::login::LoginCredentials;
 use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken};
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::ClientConfig;
 use twitch_irc::TCPTransport;
+use twitch_irc::Transport;
 use twitch_irc::TwitchIRCClient;
 
-fn parse_command(msg: PrivmsgMessage) {
+async fn parse_command<T: Transport, L: LoginCredentials>(
+    msg: PrivmsgMessage,
+    client: &Arc<TwitchIRCClient<T, L>>,
+) {
     let first_word = msg.message_text.split_whitespace().next();
     let content = msg.message_text.replace(first_word.as_deref().unwrap(), "");
     let first_word = first_word.unwrap().to_lowercase();
     let first_word = Some(first_word.as_str());
 
     match first_word {
-        Some("!join") => println!("{}: Join requested", msg.sender.login),
-        Some("!pythonsucks") => println!("{}: This must be Lord", msg.sender.login),
-        Some("!stonk") => println!("{}: yOu shOULd Buy AMC sTOnKS", msg.sender.login),
-        Some("!c++") => println!("{}: segmentation fault", msg.sender.login),
-        Some("!dave") => println!("{}", include_str!("../assets/dave.txt")),
-        Some("!bazylia") => println!("{}", include_str!("../assets/bazylia.txt")),
-        Some("!zoya") => println!("{}", include_str!("../assets/zoya.txt")),
-        Some("!discord") => println!("https://discord.gg/UyrsFX7N"),
+        Some("!join") => client
+            .say(
+                "stuck_overflow".to_owned(),
+                format!("@{}: Join requested", msg.sender.login),
+            )
+            .await
+            .unwrap(),
+        Some("!pythonsucks") => client
+            .say(
+                "stuck_overflow".to_owned(),
+                format!("@{}: This must be Lord", msg.sender.login),
+            )
+            .await
+            .unwrap(),
+        Some("!stonk") => client
+            .say(
+                "stuck_overflow".to_owned(),
+                format!("@{}: yOu shOULd Buy AMC sTOnKS", msg.sender.login),
+            )
+            .await
+            .unwrap(),
+        Some("!c++") => client
+            .say(
+                "stuck_overflow".to_owned(),
+                format!("@{}: segmentation fault", msg.sender.login),
+            )
+            .await
+            .unwrap(),
+        Some("!dave") => client
+            .say(
+                "stuck_overflow".to_owned(),
+                format!("{}", include_str!("../assets/dave.txt")),
+            )
+            .await
+            .unwrap(),
+        Some("!bazylia") => client
+            .say(
+                "stuck_overflow".to_owned(),
+                format!("{}", include_str!("../assets/bazylia.txt")),
+            )
+            .await
+            .unwrap(),
+        Some("!zoya") => client
+            .say(
+                "stuck_overflow".to_owned(),
+                format!("{}", include_str!("../assets/zoya.txt")),
+            )
+            .await
+            .unwrap(),
+        Some("!discord") => client
+            .say(
+                "stuck_overflow".to_owned(),
+                format!("https://discord.gg/UyrsFX7N"),
+            )
+            .await
+            .unwrap(),
         Some("!code") => save_code_format(&content),
         _ => {}
     }
@@ -42,7 +96,6 @@ fn save_code_format(message: &str) {
 
 #[derive(Debug)]
 struct CustomTokenStorage {
-    last_token_json: Option<String>,
     token_checkpoint_file: String,
 }
 
@@ -53,22 +106,17 @@ impl TokenStorage for CustomTokenStorage {
 
     async fn load_token(&mut self) -> Result<UserAccessToken, Self::LoadError> {
         println!("load_token called");
-        match &self.last_token_json {
-            Some(ref access_token) => Ok(serde_json::from_str(access_token).unwrap()),
-            None => Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "token doesn't exist",
-            )),
-        }
+        let token = fs::read_to_string(&self.token_checkpoint_file).unwrap();
+        let token: UserAccessToken = serde_json::from_str(&token).unwrap();
+        Ok(token)
     }
 
     async fn update_token(&mut self, token: &UserAccessToken) -> Result<(), Self::UpdateError> {
         println!("update_token called");
-        // Called after the token was updated successfully, to save the new token.
-        // After `update_token()` completes, the `load_token()` method should then return
-        // that token for future invocations
-        self.last_token_json = Some(serde_json::to_string(&token).unwrap());
-        // TODO WRITE TO FILE
+        let serialized = serde_json::to_string(&token).unwrap();
+        let _ = File::create(&self.token_checkpoint_file);
+        fs::write(&self.token_checkpoint_file, serialized)
+            .expect("Twitch IRC: Unable to write token to checkpoint file");
         Ok(())
     }
 }
@@ -79,6 +127,13 @@ struct TwitchAuth {
     login_name: String,
     client_id: String,
     secret: String,
+}
+
+#[derive(Deserialize)]
+struct FirstToken {
+    access_token: String,
+    expires_in: i64,
+    refresh_token: String,
 }
 
 // Command-line arguments for the tool.
@@ -99,6 +154,18 @@ struct Cli {
     /// Show the authentication URL and exits.
     #[structopt(short, long)]
     show_auth_url: bool,
+
+    /// If present, parse the access token from the file passed as argument.
+    #[structopt(long, default_value = "")]
+    first_token_file: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MyUserAccessToken {
+    access_token: String,
+    refresh_token: String,
+    created_at: DateTime<Utc>,
+    expires_at: Option<DateTime<Utc>>,
 }
 
 #[tokio::main]
@@ -125,21 +192,24 @@ pub async fn main() {
         std::process::exit(0);
     }
 
-    let last_token_json = Path::new(&twitch_auth.token_filepath);
-    let storage = if last_token_json.is_file() {
-        println!("{} is a file", twitch_auth.token_filepath);
-        let token = fs::read_to_string(&twitch_auth.token_filepath).unwrap();
-        CustomTokenStorage {
-            last_token_json: Some(token),
-            token_checkpoint_file: twitch_auth.token_filepath,
-        }
-    } else {
-        println!("{} is not a file", twitch_auth.token_filepath);
-        CustomTokenStorage {
-            last_token_json: Some(String::from(&twitch_auth.secret)),
-            token_checkpoint_file: twitch_auth.token_filepath,
-        }
+    let mut storage = CustomTokenStorage {
+        token_checkpoint_file: twitch_auth.token_filepath,
     };
+    if !args.first_token_file.is_empty() {
+        let first_token = fs::read_to_string(args.first_token_file).unwrap();
+        let first_token: FirstToken = serde_json::from_str(&first_token).unwrap();
+        let created_at = Utc::now();
+        let expires_at = created_at + Duration::seconds(first_token.expires_in);
+        let user_access_token = MyUserAccessToken {
+            access_token: first_token.access_token,
+            refresh_token: first_token.refresh_token,
+            created_at: created_at,
+            expires_at: Some(expires_at),
+        };
+        let serialized = serde_json::to_string(&user_access_token).unwrap();
+        let user_access_token: UserAccessToken = serde_json::from_str(&serialized).unwrap();
+        storage.update_token(&user_access_token).await.unwrap();
+    }
 
     let irc_config = ClientConfig::new_simple(RefreshingLoginCredentials::new(
         twitch_auth.login_name,
@@ -151,13 +221,14 @@ pub async fn main() {
         TCPTransport,
         RefreshingLoginCredentials<CustomTokenStorage>,
     >::new(irc_config);
-
+    let client = Arc::new(client);
+    let client_clone = Arc::clone(&client);
     // first thing you should do: start consuming incoming messages,
     // otherwise they will back up.
     let join_handle = tokio::spawn(async move {
         while let Some(message) = incoming_messages.recv().await {
             match message {
-                ServerMessage::Privmsg(msg) => parse_command(msg),
+                ServerMessage::Privmsg(msg) => parse_command(msg, &client_clone).await,
                 _ => println!("{:?}: received", message),
             }
         }
@@ -165,6 +236,13 @@ pub async fn main() {
 
     // join a channel
     client.join("stuck_overflow".to_owned());
+    client
+        .say(
+            "stuck_overflow".to_owned(),
+            "Hello! I am the Stuck-Bot, How may I unstick you?".to_owned(),
+        )
+        .await
+        .unwrap();
 
     // keep the tokio executor alive.
     // If you return instead of waiting the background task will exit.

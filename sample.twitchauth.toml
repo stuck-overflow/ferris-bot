@@ -1,4 +1,4 @@
 login_name = 'your_bot_name'
 client_id = 'YOURCLIENTID'
 secret = 'YOURSECRET'
-token_path = 'twitchauthtoken.json'
+token_filepath = '.twitchauthtoken.json'
