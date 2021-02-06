@@ -69,48 +69,18 @@ impl TokenStorage for CustomTokenStorage {
         // that token for future invocations
         self.last_token_json = Some(serde_json::to_string(&token).unwrap());
         // TODO WRITE TO FILE
-<<<<<<< HEAD
-        
-=======
->>>>>>> 95e1da9d32961913f5d59b7d2215df1b2547ba05
         Ok(())
     }
 }
 
 #[derive(Deserialize)]
 struct TwitchAuth {
-<<<<<<< HEAD
-    token_path: String,
-=======
     token_filepath: String,
->>>>>>> 95e1da9d32961913f5d59b7d2215df1b2547ba05
     login_name: String,
     client_id: String,
     secret: String,
 }
 
-<<<<<<< HEAD
-#[tokio::main]
-pub async fn main() {
-    let twitch_auth = fs::read_to_string("twitchauth.toml").unwrap();
-    let twitch_auth: TwitchAuth = toml::from_str(&twitch_auth).unwrap();
-    println!("twitch_auth read?");
-    let last_token_json = Path::new(&twitch_auth.token_path);
-    let storage = if last_token_json.is_file() {
-        println!("{} is a file", twitch_auth.token_path);
-        let token = fs::read_to_string(&twitch_auth.token_path).unwrap();
-        CustomTokenStorage { last_token_json: Some(token), token_checkpoint_file: twitch_auth.token_path  }
-    } else {
-        println!("{} is not a file", twitch_auth.token_path);
-        CustomTokenStorage { last_token_json: Some(String::from(&twitch_auth.secret)), token_checkpoint_file: twitch_auth.token_path } 
-    };    
-
-    let irc_config = ClientConfig::new_simple(
-        RefreshingLoginCredentials::new(twitch_auth.login_name, twitch_auth.client_id, twitch_auth.secret, storage)
-    );
-    let (mut incoming_messages, client) =
-        TwitchIRCClient::<TCPTransport, RefreshingLoginCredentials<CustomTokenStorage>>::new(irc_config);
-=======
 // Command-line arguments for the tool.
 #[derive(StructOpt)]
 struct Cli {
@@ -181,7 +151,6 @@ pub async fn main() {
         TCPTransport,
         RefreshingLoginCredentials<CustomTokenStorage>,
     >::new(irc_config);
->>>>>>> 95e1da9d32961913f5d59b7d2215df1b2547ba05
 
     // first thing you should do: start consuming incoming messages,
     // otherwise they will back up.
