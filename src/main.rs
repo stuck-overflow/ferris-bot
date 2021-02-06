@@ -1,11 +1,10 @@
+use async_trait::async_trait;
+use serde::Deserialize;
 use std::fs;
 use std::fs::File;
-use std::process::Command;
-use std::str;
-use twitch_irc::login::StaticLoginCredentials;
-use std::str;use async_trait::async_trait;
-use serde::Deserialize;
 use std::path::Path;
+use std::process::Command;
+use structopt::StructOpt;
 use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken};
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::ClientConfig;
@@ -70,19 +69,27 @@ impl TokenStorage for CustomTokenStorage {
         // that token for future invocations
         self.last_token_json = Some(serde_json::to_string(&token).unwrap());
         // TODO WRITE TO FILE
+<<<<<<< HEAD
         
+=======
+>>>>>>> 95e1da9d32961913f5d59b7d2215df1b2547ba05
         Ok(())
     }
 }
 
 #[derive(Deserialize)]
 struct TwitchAuth {
+<<<<<<< HEAD
     token_path: String,
+=======
+    token_filepath: String,
+>>>>>>> 95e1da9d32961913f5d59b7d2215df1b2547ba05
     login_name: String,
     client_id: String,
     secret: String,
 }
 
+<<<<<<< HEAD
 #[tokio::main]
 pub async fn main() {
     let twitch_auth = fs::read_to_string("twitchauth.toml").unwrap();
@@ -103,6 +110,78 @@ pub async fn main() {
     );
     let (mut incoming_messages, client) =
         TwitchIRCClient::<TCPTransport, RefreshingLoginCredentials<CustomTokenStorage>>::new(irc_config);
+=======
+// Command-line arguments for the tool.
+#[derive(StructOpt)]
+struct Cli {
+    /// Twitch credential files.
+    #[structopt(short, long, default_value = "twitchauth.toml")]
+    credentials_file: String,
+
+    /// Generates the curl command to obtain the first token and exits.
+    #[structopt(short, long)]
+    generate_curl_first_token_request: bool,
+
+    /// Auth code to be used when obtaining first token.
+    #[structopt(long, default_value = "")]
+    auth_code: String,
+
+    /// Show the authentication URL and exits.
+    #[structopt(short, long)]
+    show_auth_url: bool,
+}
+
+#[tokio::main]
+pub async fn main() {
+    let args = Cli::from_args();
+
+    let twitch_auth = fs::read_to_string(args.credentials_file).unwrap();
+    let twitch_auth: TwitchAuth = toml::from_str(&twitch_auth).unwrap();
+
+    if args.show_auth_url {
+        println!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost&response_type=code&scope=chat:read%20chat:edit", twitch_auth.client_id);
+        std::process::exit(0);
+    }
+
+    if args.generate_curl_first_token_request {
+        if args.auth_code.is_empty() {
+            println!("Please set --auth_code. Aborting.");
+            std::process::exit(1);
+        }
+        println!("curl -X POST 'https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=http://localhost' > firsttoken.json",
+            twitch_auth.client_id,
+            twitch_auth.secret,
+            args.auth_code);
+        std::process::exit(0);
+    }
+
+    let last_token_json = Path::new(&twitch_auth.token_filepath);
+    let storage = if last_token_json.is_file() {
+        println!("{} is a file", twitch_auth.token_filepath);
+        let token = fs::read_to_string(&twitch_auth.token_filepath).unwrap();
+        CustomTokenStorage {
+            last_token_json: Some(token),
+            token_checkpoint_file: twitch_auth.token_filepath,
+        }
+    } else {
+        println!("{} is not a file", twitch_auth.token_filepath);
+        CustomTokenStorage {
+            last_token_json: Some(String::from(&twitch_auth.secret)),
+            token_checkpoint_file: twitch_auth.token_filepath,
+        }
+    };
+
+    let irc_config = ClientConfig::new_simple(RefreshingLoginCredentials::new(
+        twitch_auth.login_name,
+        twitch_auth.client_id,
+        twitch_auth.secret,
+        storage,
+    ));
+    let (mut incoming_messages, client) = TwitchIRCClient::<
+        TCPTransport,
+        RefreshingLoginCredentials<CustomTokenStorage>,
+    >::new(irc_config);
+>>>>>>> 95e1da9d32961913f5d59b7d2215df1b2547ba05
 
     // first thing you should do: start consuming incoming messages,
     // otherwise they will back up.
