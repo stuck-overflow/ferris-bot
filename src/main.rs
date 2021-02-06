@@ -82,35 +82,46 @@ struct TwitchAuth {
 }
 
 // Command-line arguments for the tool.
-#[derive(Debug, StructOpt)]
+#[derive(StructOpt)]
 struct Cli {
+    /// Twitch credential files.
+    #[structopt(short, long, default_value = "twitchauth.toml")]
+    credentials_file: String,
+
+    /// Generates the curl command to obtain the first token and exits.
+    #[structopt(short, long)]
+    generate_curl_first_token_request: bool,
+
+    /// Auth code to be used when obtaining first token.
+    #[structopt(long, default_value = "")]
+    auth_code: String,
+
     /// Show the authentication URL and exits.
     #[structopt(short, long)]
     show_auth_url: bool,
-    /// Generates the curl command to obtain the first token, given the code provided by Twitch upon user authorisation.
-    #[structopt(short, long)]
-    generate_curl_token_request_for_code: String,
 }
 
 #[tokio::main]
 pub async fn main() {
     let args = Cli::from_args();
-    println!("Args passed: {:?}", args);
 
-    let twitch_auth = fs::read_to_string("twitchauth.toml").unwrap();
+    let twitch_auth = fs::read_to_string(args.credentials_file).unwrap();
     let twitch_auth: TwitchAuth = toml::from_str(&twitch_auth).unwrap();
-    println!("twitch_auth read");
 
     if args.show_auth_url {
         println!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost&response_type=code&scope=chat:read%20chat:edit", twitch_auth.client_id);
         std::process::exit(0);
     }
 
-    if !args.generate_curl_token_request_for_code.is_empty() {
+    if args.generate_curl_first_token_request {
+        if args.auth_code.is_empty() {
+            println!("Please set --auth_code. Aborting.");
+            std::process::exit(1);
+        }
         println!("curl -X POST 'https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=http://localhost' > firsttoken.json",
             twitch_auth.client_id,
             twitch_auth.secret,
-            args.generate_curl_token_request_for_code);
+            args.auth_code);
         std::process::exit(0);
     }
 
