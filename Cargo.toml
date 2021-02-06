@@ -15,3 +15,7 @@ tokio = { version = "1.1.0", features = ["full"] }
 toml = "0.4.2"
 twitch-irc = { version = "2.1.0", features = ["refreshing-token"] }
 chrono = "0.4"
+tempfile = "3"
+serenity = "0.10"
+lazy_static = "1.4.0"
+regex = "1"
