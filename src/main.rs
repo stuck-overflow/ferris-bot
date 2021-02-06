@@ -2,9 +2,9 @@ extern crate serenity;
 use serenity::http::Http;
 use serenity::model::id::ChannelId;
 use std::fs;
-use std::io::Write;
 use std::fs::File;
 use std::io::Read;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::str;
@@ -43,22 +43,21 @@ async fn nothing(http: &Arc<Http>) {
     let _ = ChannelId(id).say(http, "This does nothing").await;
 }
 
-async fn send_code_discord(http: &Arc<Http>, code_file:&Path) {
+async fn send_code_discord(http: &Arc<Http>, code_file: &Path) {
     let code_ex = fs::read_to_string(code_file).expect("nop you nop read file");
+    let result = format!("fn main() {{\r\n{}\r}}", code_ex);
+    let code_ex = format!("{}{}{}", "```rs\n", result, "```");
     let id: u64 = 805839708198404106;
     let _ = ChannelId(id).say(http, code_ex).await;
 }
 
-async fn save_code_format(http: &Arc<Http>, message:&str) {
+async fn save_code_format(http: &Arc<Http>, message: &str) {
     let path = "chat_code.rs";
     let mut file_path = File::create(path).unwrap();
-    write!(file_path, "```rs\n").expect("not able to write");
     write!(file_path, "{}", message).expect("not able to write");
-
     let mut tidy = Command::new("rustfmt");
     tidy.arg(path);
     tidy.status().expect("not working");
-    write!(file_path, "```").expect("not able to write");
     let path = Path::new(path);
     send_code_discord(http, path).await;
 }
