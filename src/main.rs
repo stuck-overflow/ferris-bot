@@ -1,7 +1,7 @@
+extern crate serenity;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-extern crate serenity;
 use serenity::http::Http;
 use serenity::model::id::ChannelId;
 use std::fs;
