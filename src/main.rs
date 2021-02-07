@@ -255,6 +255,7 @@ pub async fn main() {
     let mut token = String::new();
     file.read_to_string(&mut token)
         .expect("Token file not found");
+    let token = token.trim();
 
     let token = token.trim();
 
