@@ -10,9 +10,9 @@ version of the bot has a manual flow that requires user assistance to obtain the
 right credential.
 
 Prepare a `.toml` file with the correct credentials, see
-[`sample.twitchauth.toml`](sample.twitchauth.toml) for an example. By default
-the app will look for a file named `twitchauth.toml`, you can override this name
-with the `--credentials_file` flag.
+[`sample.ferrisbot.toml`](sample.ferrisbot.toml) for an example. By default the
+app will look for a file named `ferrisbot.toml`, you can override this name with
+the `--config_file` flag.
 
 ### 1. Obtain user permission
 

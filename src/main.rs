@@ -6,7 +6,6 @@ use serenity::http::Http;
 use serenity::model::id::ChannelId;
 use std::fs;
 use std::fs::File;
-use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
@@ -26,6 +25,8 @@ async fn parse_command<T: Transport, L: LoginCredentials>(
     msg: PrivmsgMessage,
     client: &Arc<TwitchIRCClient<T, L>>,
     http: &Arc<Http>,
+    twitch_channel_name: &String,
+    discord_channel_id: u64,
 ) {
     let first_word = msg.message_text.split_whitespace().next();
     let content = msg.message_text.replace(first_word.as_deref().unwrap(), "");
@@ -35,80 +36,80 @@ async fn parse_command<T: Transport, L: LoginCredentials>(
     match first_word {
         Some("!join") => client
             .say(
-                "stuck_overflow".to_owned(),
+                twitch_channel_name.to_owned(),
                 format!("@{}: Join requested", msg.sender.login),
             )
             .await
             .unwrap(),
         Some("!pythonsucks") => client
             .say(
-                "stuck_overflow".to_owned(),
+                twitch_channel_name.to_owned(),
                 format!("@{}: This must be Lord", msg.sender.login),
             )
             .await
             .unwrap(),
         Some("!stonk") => client
             .say(
-                "stuck_overflow".to_owned(),
+                twitch_channel_name.to_owned(),
                 format!("@{}: yOu shOULd Buy AMC sTOnKS", msg.sender.login),
             )
             .await
             .unwrap(),
         Some("!c++") => client
             .say(
-                "stuck_overflow".to_owned(),
+                twitch_channel_name.to_owned(),
                 format!("@{}: segmentation fault", msg.sender.login),
             )
             .await
             .unwrap(),
         Some("!dave") => client
             .say(
-                "stuck_overflow".to_owned(),
+                twitch_channel_name.to_owned(),
                 format!("{}", include_str!("../assets/dave.txt")),
             )
             .await
             .unwrap(),
         Some("!bazylia") => client
             .say(
-                "stuck_overflow".to_owned(),
+                twitch_channel_name.to_owned(),
                 format!("{}", include_str!("../assets/bazylia.txt")),
             )
             .await
             .unwrap(),
         Some("!zoya") => client
             .say(
-                "stuck_overflow".to_owned(),
+                twitch_channel_name.to_owned(),
                 format!("{}", include_str!("../assets/zoya.txt")),
             )
             .await
             .unwrap(),
         Some("!discord") => client
             .say(
-                "stuck_overflow".to_owned(),
+                twitch_channel_name.to_owned(),
                 format!("https://discord.gg/UyrsFX7N"),
             )
             .await
             .unwrap(),
-        Some("!nothing") => nothing(&http).await,
-        Some("!code") => save_code_format(&http, &content).await,
+        Some("!nothing") => nothing(&http, discord_channel_id).await,
+        Some("!code") => save_code_format(&http, &content, discord_channel_id).await,
         _ => {}
     }
 }
 
-async fn nothing(http: &Arc<Http>) {
+async fn nothing(http: &Arc<Http>, discord_channel_id: u64) {
     println!("nothing received");
-    let id: u64 = 805839708198404106;
-    let _ = ChannelId(id).say(http, "This does nothing").await;
+    let _ = ChannelId(discord_channel_id)
+        .say(http, "This does nothing")
+        .await;
 }
 
-async fn send_code_discord(http: &Arc<Http>, code_file: &Path) {
+async fn send_code_discord(http: &Arc<Http>, discord_channel_id: u64, code_file: &Path) {
     let code_ex = fs::read_to_string(code_file).expect("nop you nop read file");
     let code_ex = format!("{}{}{}", "```rs\n", code_ex, "```");
-    let id: u64 = 805839708198404106;
-    let _ = ChannelId(id).say(http, code_ex).await;
+    let _ = ChannelId(discord_channel_id).say(http, code_ex).await;
 }
 
-async fn save_code_format(http: &Arc<Http>, message: &str) {
+async fn save_code_format(http: &Arc<Http>, message: &str, discord_channel_id: u64) {
     let path = "chat_code.rs";
     let mut file_path = File::create(path).unwrap();
     write!(file_path, "{}", message).expect("not able to write");
@@ -116,7 +117,7 @@ async fn save_code_format(http: &Arc<Http>, message: &str) {
     tidy.arg(path);
     tidy.status().expect("not working");
     let path = Path::new(path);
-    send_code_discord(http, path).await;
+    send_code_discord(http, discord_channel_id, path).await;
 }
 
 #[derive(Debug)]
@@ -147,11 +148,24 @@ impl TokenStorage for CustomTokenStorage {
 }
 
 #[derive(Deserialize)]
-struct TwitchAuth {
+struct FerrisBotConfig {
+    twitch: TwitchConfig,
+    discord: DiscordConfig,
+}
+
+#[derive(Deserialize)]
+struct TwitchConfig {
     token_filepath: String,
     login_name: String,
+    channel_name: String,
     client_id: String,
     secret: String,
+}
+
+#[derive(Deserialize)]
+struct DiscordConfig {
+    auth_token: String,
+    channel_id: u64,
 }
 
 #[derive(Deserialize)]
@@ -165,8 +179,8 @@ struct FirstToken {
 #[derive(StructOpt)]
 struct Cli {
     /// Twitch credential files.
-    #[structopt(short, long, default_value = "twitchauth.toml")]
-    credentials_file: String,
+    #[structopt(short, long, default_value = "ferrisbot.toml")]
+    config_file: String,
 
     /// Generates the curl command to obtain the first token and exits.
     #[structopt(short, long)]
@@ -197,12 +211,12 @@ pub struct MyUserAccessToken {
 pub async fn main() {
     let args = Cli::from_args();
 
-    // Twitch configuration routine, see README.md for usage.
-    let twitch_auth = fs::read_to_string(args.credentials_file).unwrap();
-    let twitch_auth: TwitchAuth = toml::from_str(&twitch_auth).unwrap();
+    let config = fs::read_to_string(args.config_file).unwrap();
+
+    let config: FerrisBotConfig = toml::from_str(&config).unwrap();
 
     if args.show_auth_url {
-        println!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost&response_type=code&scope=chat:read%20chat:edit", twitch_auth.client_id);
+        println!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost&response_type=code&scope=chat:read%20chat:edit", config.twitch.client_id);
         std::process::exit(0);
     }
 
@@ -212,14 +226,14 @@ pub async fn main() {
             std::process::exit(1);
         }
         println!("curl -X POST 'https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=http://localhost' > /tmp/firsttoken.json",
-            twitch_auth.client_id,
-            twitch_auth.secret,
+            config.twitch.client_id,
+            config.twitch.secret,
             args.auth_code);
         std::process::exit(0);
     }
 
     let mut storage = CustomTokenStorage {
-        token_checkpoint_file: twitch_auth.token_filepath,
+        token_checkpoint_file: config.twitch.token_filepath,
     };
     if !args.first_token_file.is_empty() {
         let first_token = fs::read_to_string(args.first_token_file).unwrap();
@@ -238,9 +252,9 @@ pub async fn main() {
     }
 
     let irc_config = ClientConfig::new_simple(RefreshingLoginCredentials::new(
-        twitch_auth.login_name,
-        twitch_auth.client_id,
-        twitch_auth.secret,
+        config.twitch.login_name,
+        config.twitch.client_id,
+        config.twitch.secret,
         storage,
     ));
     let (mut incoming_messages, client) = TwitchIRCClient::<
@@ -251,39 +265,44 @@ pub async fn main() {
     let client_clone = Arc::clone(&client);
 
     // Discord credentials.
-    let mut file = File::open(".token").expect("Error loading Discord token");
-    let mut token = String::new();
-    file.read_to_string(&mut token)
-        .expect("Token file not found");
-    let token = token.trim();
 
-    let token = token.trim();
-
-    let http = Arc::new(Http::new_with_token(&token));
+    let http = Arc::new(Http::new_with_token(&config.discord.auth_token));
 
     let http2 = Arc::clone(&http);
+
+    let discord_channel_id_clone = config.discord.channel_id.clone();
+    let twitch_channel_name_clone = config.twitch.channel_name.clone();
     // first thing you should do: start consuming incoming messages,
     // otherwise they will back up.
     let join_handle = tokio::spawn(async move {
         while let Some(message) = incoming_messages.recv().await {
             match message {
-                ServerMessage::Privmsg(msg) => parse_command(msg, &client_clone, &http2).await,
+                ServerMessage::Privmsg(msg) => {
+                    parse_command(
+                        msg,
+                        &client_clone,
+                        &http2,
+                        &twitch_channel_name_clone,
+                        discord_channel_id_clone,
+                    )
+                    .await
+                }
                 _ => continue,
             }
         }
     });
 
     // join a channel
-    client.join("stuck_overflow".to_owned());
+    client.join(config.twitch.channel_name.to_owned());
     client
         .say(
-            "stuck_overflow".to_owned(),
+            config.twitch.channel_name.to_owned(),
             "Hello! I am the Stuck-Bot, How may I unstick you?".to_owned(),
         )
         .await
         .unwrap();
 
-    discord_commands::init_discord_bot(Arc::clone(&http), &token).await;
+    discord_commands::init_discord_bot(Arc::clone(&http), &config.discord.auth_token).await;
     // keep the tokio executor alive.
     // If you return instead of waiting the background task will exit.
     join_handle.await.unwrap();
