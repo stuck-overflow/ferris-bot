@@ -1,6 +1,5 @@
 /target
 Cargo.lock
 chat_code.rs
-token.txt
-.test
-.token
+.*token*
+twitchauth.toml
