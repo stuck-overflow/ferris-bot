@@ -2,4 +2,4 @@
 Cargo.lock
 chat_code.rs
 .*token*
-twitchauth.toml
+ferrisbot.toml

@@ -1,4 +1,10 @@
+[twitch]
 login_name = 'your_bot_name'
+channel_name = 'stuck_overflow'
 client_id = 'YOURCLIENTID'
 secret = 'YOURSECRET'
 token_filepath = '.twitchauthtoken.json'
+
+[discord]
+auth_token = 'YOURAUTHTOKEN'
+channel_id = 805839708198404106
