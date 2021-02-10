@@ -8,6 +8,7 @@
 //! git = "https://github.com/serenity-rs/serenity.git"
 //! features = ["framework", "standard_framework"]
 //! ```
+use log::{debug, error, info};
 use serenity::prelude::*;
 use serenity::{
     async_trait,
@@ -54,7 +55,7 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, _: Context, ready: Ready) {
-        println!("{} is connected!", ready.user.name);
+        info!("{} is connected to Discord!", ready.user.name);
     }
 }
 
@@ -150,7 +151,7 @@ async fn my_help(
 
 #[hook]
 async fn before(ctx: &Context, msg: &Message, command_name: &str) -> bool {
-    println!(
+    info!(
         "Got command '{}' by user '{}'",
         command_name, msg.author.name
     );
@@ -171,19 +172,19 @@ async fn before(ctx: &Context, msg: &Message, command_name: &str) -> bool {
 #[hook]
 async fn after(_ctx: &Context, _msg: &Message, command_name: &str, command_result: CommandResult) {
     match command_result {
-        Ok(()) => println!("Processed command '{}'", command_name),
-        Err(why) => println!("Command '{}' returned error {:?}", command_name, why),
+        Ok(()) => debug!("Processed command '{}'", command_name),
+        Err(why) => debug!("Command '{}' returned error {:?}", command_name, why),
     }
 }
 
 #[hook]
 async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &str) {
-    println!("Could not find command named '{}'", unknown_command_name);
+    info!("Could not find command named '{}'", unknown_command_name);
 }
 
 #[hook]
 async fn normal_message(_ctx: &Context, msg: &Message) {
-    println!("Message is not a command '{}'", msg.content);
+    debug!("Message is not a command '{}'", msg.content);
 }
 
 #[hook]
@@ -328,7 +329,7 @@ pub async fn init_discord_bot(http: Arc<Http>, token: &str) {
     }
 
     if let Err(why) = client.start().await {
-        println!("Client error: {:?}", why);
+        error!("Client error: {:?}", why);
     }
 }
 
@@ -438,7 +439,7 @@ async fn about_role(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                 .say(&ctx.http, &format!("Role-ID: {}", role.id))
                 .await
             {
-                println!("Error sending message: {:?}", why);
+                error!("Error sending message: {:?}", why);
             }
 
             return Ok(());
@@ -618,7 +619,7 @@ async fn slow_mode(ctx: &Context, msg: &Message, mut args: Args) -> CommandResul
             .edit(&ctx.http, |c| c.slow_mode_rate(slow_mode_rate_seconds))
             .await
         {
-            println!("Error setting channel's slow mode rate: {:?}", why);
+            error!("Error setting channel's slow mode rate: {:?}", why);
 
             format!(
                 "Failed to set slow mode to `{}` seconds.",
