@@ -173,7 +173,7 @@ async fn before(ctx: &Context, msg: &Message, command_name: &str) -> bool {
 async fn after(_ctx: &Context, _msg: &Message, command_name: &str, command_result: CommandResult) {
     match command_result {
         Ok(()) => debug!("Processed command '{}'", command_name),
-        Err(why) => debug!("Command '{}' returned error {:?}", command_name, why),
+        Err(why) => error!("Command '{}' returned error {:?}", command_name, why),
     }
 }
 
