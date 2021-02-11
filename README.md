@@ -3,6 +3,22 @@ Twitch bot for organising queues - developed live at twitch.tv/stuck_overflow
 
 Use `cargo run -- --help` to see the available options.
 
+## Discord authentication 
+
+### 1. Register your bot 
+
+To register a new application visit https://discord.com/developers/applications and create a new application.
+
+Select bot from the options, check the permissions for the bot to write to the chat and then copy the authorisation token. 
+
+### 2. Obtain a channel ID
+
+Right click the channel you wish to post to in Discord and select 'Copy ID'
+
+### 3. Add credentials
+
+Add the bot authorisation token and channel ID to [`sample.ferrisbot.toml`](sample.ferrisbot.toml)
+
 ## Twitch authentication flow
 
 You need to obtain user credentials to allow the bot to login. The current
