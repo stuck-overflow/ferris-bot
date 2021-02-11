@@ -1,9 +1,13 @@
 extern crate serenity;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
+use clap::arg_enum;
+use log::LevelFilter;
+use log::{debug, trace};
 use serde::{Deserialize, Serialize};
 use serenity::http::Http;
 use serenity::model::id::ChannelId;
+use simple_logger::SimpleLogger;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -97,7 +101,7 @@ async fn parse_command<T: Transport, L: LoginCredentials>(
 }
 
 async fn nothing(http: &Arc<Http>, discord_channel_id: u64) {
-    println!("nothing received");
+    debug!("nothing received");
     let _ = ChannelId(discord_channel_id)
         .say(http, "This does nothing")
         .await;
@@ -131,14 +135,14 @@ impl TokenStorage for CustomTokenStorage {
     type UpdateError = std::io::Error;
 
     async fn load_token(&mut self) -> Result<UserAccessToken, Self::LoadError> {
-        println!("load_token called");
+        debug!("load_token called");
         let token = fs::read_to_string(&self.token_checkpoint_file).unwrap();
         let token: UserAccessToken = serde_json::from_str(&token).unwrap();
         Ok(token)
     }
 
     async fn update_token(&mut self, token: &UserAccessToken) -> Result<(), Self::UpdateError> {
-        println!("update_token called");
+        debug!("update_token called");
         let serialized = serde_json::to_string(&token).unwrap();
         let _ = File::create(&self.token_checkpoint_file);
         fs::write(&self.token_checkpoint_file, serialized)
@@ -175,9 +179,36 @@ struct FirstToken {
     refresh_token: String,
 }
 
+arg_enum! {
+    #[derive(Debug)]
+    enum LogLevel {
+        Off,
+        Error,
+        Warn,
+        Info,
+        Debug,
+        Trace,
+    }
+}
+
+fn to_level_filter(l: LogLevel) -> LevelFilter {
+    match l {
+        LogLevel::Off => LevelFilter::Off,
+        LogLevel::Error => LevelFilter::Error,
+        LogLevel::Warn => LevelFilter::Warn,
+        LogLevel::Info => LevelFilter::Info,
+        LogLevel::Debug => LevelFilter::Debug,
+        LogLevel::Trace => LevelFilter::Trace,
+    }
+}
+
 // Command-line arguments for the tool.
 #[derive(StructOpt)]
 struct Cli {
+    /// Log level
+    #[structopt(short, long, possible_values = &LogLevel::variants(), case_insensitive = true, default_value = "Info")]
+    log_level: LogLevel,
+
     /// Twitch credential files.
     #[structopt(short, long, default_value = "ferrisbot.toml")]
     config_file: String,
@@ -210,6 +241,10 @@ pub struct MyUserAccessToken {
 #[tokio::main]
 pub async fn main() {
     let args = Cli::from_args();
+    SimpleLogger::new()
+        .with_level(to_level_filter(args.log_level))
+        .init()
+        .unwrap();
 
     let config = fs::read_to_string(args.config_file).unwrap();
 
@@ -276,6 +311,7 @@ pub async fn main() {
     // otherwise they will back up.
     let join_handle = tokio::spawn(async move {
         while let Some(message) = incoming_messages.recv().await {
+            trace!("{:?}", message);
             match message {
                 ServerMessage::Privmsg(msg) => {
                     parse_command(
