@@ -54,3 +54,32 @@ cargo run -- --first-token-file /tmp/firsttoken.json
 
 At this point the token will be used and stored in the bot's cache. You won't
 need to use the `--first-token-file`.
+
+## Running with Docker
+It is recommended to run the bot using docker.
+
+### 1. Create `docker-compose.yml` file
+
+The file should have a service for this bot.
+```yaml
+version: "3.3"
+services:
+  ferris-bot:
+    # TODO: adjust image name once published
+    image: ferris-bot
+    volumes:
+      # Config files are in the /config directory.
+      - "./config:/config"
+```
+
+### 2. Setup files
+
+Set up the following files in the `/config` directory inside the container
+
+- `ferrisbot.toml` for the config file
+- `first-token.json` for the first token
+
+### 3. Run
+
+Start the services with `docker-compose up`
+
