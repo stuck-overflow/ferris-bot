@@ -54,3 +54,20 @@ cargo run -- --first-token-file /tmp/firsttoken.json
 
 At this point the token will be used and stored in the bot's cache. You won't
 need to use the `--first-token-file`.
+
+## Discord authentication 
+
+### 1. Register your bot 
+
+To register a new application visit https://discord.com/developers/applications and create a new 
+
+Select bot from the options, check the permissions for the bot to write to the chat and then copy
+
+### 2. Obtain a channel ID
+
+Right click the channel you wish to post to in Discord and select 'Copy ID'
+
+### 3. Add credentials
+
+Add the bot authorisation token and channel ID to your `ferrisbot.toml` file as described above. 
+
