@@ -4,6 +4,7 @@ use chrono::{DateTime, Duration, Utc};
 use clap::arg_enum;
 use log::LevelFilter;
 use log::{debug, trace};
+use queue_manager::QueueManager;
 use serde::{Deserialize, Serialize};
 use serenity::http::Http;
 use serenity::model::id::ChannelId;
@@ -15,6 +16,7 @@ use std::path::Path;
 use std::process::Command;
 use std::str;
 use std::sync::Arc;
+use std::sync::Mutex;
 use structopt::StructOpt;
 use twitch_irc::login::LoginCredentials;
 use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken};
@@ -24,6 +26,46 @@ use twitch_irc::TCPTransport;
 use twitch_irc::Transport;
 use twitch_irc::TwitchIRCClient;
 mod discord_commands;
+mod queue_manager;
+
+async fn handle_join<T: Transport, L: LoginCredentials>(
+    client: &Arc<TwitchIRCClient<T, L>>,
+    twitch_channel_name: &String,
+    msg: PrivmsgMessage,
+    queue_manager: &Arc<Mutex<QueueManager>>,
+) {
+    client
+        .say(
+            twitch_channel_name.to_owned(),
+            format!("@{}: Join requested", msg.sender.login),
+        )
+        .await
+        .unwrap();
+    queue_manager
+        .lock()
+        .unwrap()
+        .join(msg.sender.login, queue_manager::UserType::Default);
+}
+
+async fn handle_queue<T: Transport, L: LoginCredentials>(
+    client: &Arc<TwitchIRCClient<T, L>>,
+    twitch_channel_name: &String,
+    msg: PrivmsgMessage,
+    queue_manager: &Arc<Mutex<QueueManager>>,
+) {
+    let reply = {
+        let queue_manager = queue_manager.lock().unwrap();
+        let queue = queue_manager.queue();
+        queue.join(", ")
+    };
+    client
+        .say(
+            twitch_channel_name.to_owned(),
+            format!("@{}: Current queue: {}", msg.sender.login, reply),
+        )
+        .await
+        .unwrap();
+}
 
 async fn parse_command<T: Transport, L: LoginCredentials>(
     msg: PrivmsgMessage,
@@ -31,6 +73,7 @@ async fn parse_command<T: Transport, L: LoginCredentials>(
     http: &Arc<Http>,
     twitch_channel_name: &String,
     discord_channel_id: u64,
+    queue_manager: &Arc<Mutex<QueueManager>>,
 ) {
     let first_word = msg.message_text.split_whitespace().next();
     let content = msg.message_text.replace(first_word.as_deref().unwrap(), "");
@@ -38,13 +81,8 @@ async fn parse_command<T: Transport, L: LoginCredentials>(
     let first_word = Some(first_word.as_str());
 
     match first_word {
-        Some("!join") => client
-            .say(
-                twitch_channel_name.to_owned(),
-                format!("@{}: Join requested", msg.sender.login),
-            )
-            .await
-            .unwrap(),
+        Some("!join") => handle_join(client, twitch_channel_name, msg, queue_manager).await,
+        Some("!queue") => handle_queue(client, twitch_channel_name, msg, queue_manager).await,
         Some("!pythonsucks") => client
             .say(
                 twitch_channel_name.to_owned(),
@@ -305,6 +343,9 @@ pub async fn main() {
 
     let http2 = Arc::clone(&http);
 
+    // Queue manager.
+    let queue_manager = Arc::new(Mutex::new(QueueManager::new()));
+
     let discord_channel_id_clone = config.discord.channel_id.clone();
     let twitch_channel_name_clone = config.twitch.channel_name.clone();
     // first thing you should do: start consuming incoming messages,
@@ -320,6 +361,7 @@ pub async fn main() {
                         &http2,
                         &twitch_channel_name_clone,
                         discord_channel_id_clone,
+                        &queue_manager,
                     )
                     .await
                 }
