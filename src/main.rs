@@ -268,14 +268,6 @@ struct Cli {
     first_token_file: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MyUserAccessToken {
-    access_token: String,
-    refresh_token: String,
-    created_at: DateTime<Utc>,
-    expires_at: Option<DateTime<Utc>>,
-}
-
 #[tokio::main]
 pub async fn main() {
     let args = Cli::from_args();
@@ -313,14 +305,12 @@ pub async fn main() {
         let first_token: FirstToken = serde_json::from_str(&first_token).unwrap();
         let created_at = Utc::now();
         let expires_at = created_at + Duration::seconds(first_token.expires_in);
-        let user_access_token = MyUserAccessToken {
+        let user_access_token = UserAccessToken {
             access_token: first_token.access_token,
             refresh_token: first_token.refresh_token,
             created_at: created_at,
             expires_at: Some(expires_at),
         };
-        let serialized = serde_json::to_string(&user_access_token).unwrap();
-        let user_access_token: UserAccessToken = serde_json::from_str(&serialized).unwrap();
         storage.update_token(&user_access_token).await.unwrap();
     }
 
