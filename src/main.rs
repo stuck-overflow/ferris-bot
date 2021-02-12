@@ -1,38 +1,33 @@
-extern crate serenity;
+mod discord_commands;
+mod queue_manager;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use clap::arg_enum;
-use log::LevelFilter;
-use log::{debug, trace};
+use log::{debug, trace, LevelFilter};
 use queue_manager::QueueManager;
 use serde::{Deserialize, Serialize};
 use serenity::http::Http;
 use serenity::model::id::ChannelId;
 use simple_logger::SimpleLogger;
-use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
-use std::str;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::{fs, str};
 use structopt::StructOpt;
-use twitch_irc::login::LoginCredentials;
-use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken};
+use twitch_irc::login::{
+    LoginCredentials, RefreshingLoginCredentials, TokenStorage, UserAccessToken,
+};
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
-use twitch_irc::ClientConfig;
-use twitch_irc::TCPTransport;
-use twitch_irc::Transport;
-use twitch_irc::TwitchIRCClient;
-mod discord_commands;
-mod queue_manager;
+use twitch_irc::{ClientConfig, TCPTransport, Transport, TwitchIRCClient};
 
 async fn handle_join<T: Transport, L: LoginCredentials>(
-    client: &Arc<TwitchIRCClient<T, L>>,
-    twitch_channel_name: &String,
+    client: TwitchIRCClient<T, L>,
+    twitch_channel_name: &str,
     msg: PrivmsgMessage,
-    queue_manager: &Arc<Mutex<QueueManager>>,
+    queue_manager: &Mutex<QueueManager>,
 ) {
     client
         .say(
@@ -44,14 +39,15 @@ async fn handle_join<T: Transport, L: LoginCredentials>(
     queue_manager
         .lock()
         .unwrap()
-        .join(msg.sender.login, queue_manager::UserType::Default);
+        .join(msg.sender.login, queue_manager::UserType::Default)
+        .unwrap();
 }
 
 async fn handle_queue<T: Transport, L: LoginCredentials>(
-    client: &Arc<TwitchIRCClient<T, L>>,
-    twitch_channel_name: &String,
+    client: TwitchIRCClient<T, L>,
+    twitch_channel_name: &str,
     msg: PrivmsgMessage,
-    queue_manager: &Arc<Mutex<QueueManager>>,
+    queue_manager: &Mutex<QueueManager>,
 ) {
     let reply = {
         let queue_manager = queue_manager.lock().unwrap();
@@ -69,11 +65,11 @@ async fn handle_queue<T: Transport, L: LoginCredentials>(
 
 async fn parse_command<T: Transport, L: LoginCredentials>(
     msg: PrivmsgMessage,
-    client: &Arc<TwitchIRCClient<T, L>>,
-    http: &Arc<Http>,
+    client: TwitchIRCClient<T, L>,
+    http: &Http,
     twitch_channel_name: &String,
     discord_channel_id: u64,
-    queue_manager: &Arc<Mutex<QueueManager>>,
+    queue_manager: &Mutex<QueueManager>,
 ) {
     let first_word = msg.message_text.split_whitespace().next();
     let content = msg.message_text.replace(first_word.as_deref().unwrap(), "");
@@ -107,51 +103,51 @@ async fn parse_command<T: Transport, L: LoginCredentials>(
         Some("!dave") => client
             .say(
                 twitch_channel_name.to_owned(),
-                format!("{}", include_str!("../assets/dave.txt")),
+                include_str!("../assets/dave.txt").to_owned(),
             )
             .await
             .unwrap(),
         Some("!bazylia") => client
             .say(
                 twitch_channel_name.to_owned(),
-                format!("{}", include_str!("../assets/bazylia.txt")),
+                include_str!("../assets/bazylia.txt").to_owned(),
             )
             .await
             .unwrap(),
         Some("!zoya") => client
             .say(
                 twitch_channel_name.to_owned(),
-                format!("{}", include_str!("../assets/zoya.txt")),
+                include_str!("../assets/zoya.txt").to_owned(),
             )
             .await
             .unwrap(),
         Some("!discord") => client
             .say(
                 twitch_channel_name.to_owned(),
-                format!("https://discord.gg/UyrsFX7N"),
+                "https://discord.gg/UyrsFX7N".to_owned(),
             )
             .await
             .unwrap(),
-        Some("!nothing") => nothing(&http, discord_channel_id).await,
-        Some("!code") => save_code_format(&http, &content, discord_channel_id).await,
+        Some("!nothing") => nothing(http, discord_channel_id).await,
+        Some("!code") => save_code_format(http, &content, discord_channel_id).await,
         _ => {}
     }
 }
 
-async fn nothing(http: &Arc<Http>, discord_channel_id: u64) {
+async fn nothing(http: &Http, discord_channel_id: u64) {
     debug!("nothing received");
     let _ = ChannelId(discord_channel_id)
         .say(http, "This does nothing")
         .await;
 }
 
-async fn send_code_discord(http: &Arc<Http>, discord_channel_id: u64, code_file: &Path) {
+async fn send_code_discord(http: &Http, discord_channel_id: u64, code_file: &Path) {
     let code_ex = fs::read_to_string(code_file).expect("nop you nop read file");
     let code_ex = format!("{}{}{}", "```rs\n", code_ex, "```");
     let _ = ChannelId(discord_channel_id).say(http, code_ex).await;
 }
 
-async fn save_code_format(http: &Arc<Http>, message: &str, discord_channel_id: u64) {
+async fn save_code_format(http: &Http, message: &str, discord_channel_id: u64) {
     let path = "chat_code.rs";
     let mut file_path = File::create(path).unwrap();
     write!(file_path, "{}", message).expect("not able to write");
@@ -308,6 +304,7 @@ pub async fn main() {
     let mut storage = CustomTokenStorage {
         token_checkpoint_file: config.twitch.token_filepath,
     };
+
     if !args.first_token_file.is_empty() {
         let first_token = fs::read_to_string(args.first_token_file).unwrap();
         let first_token: FirstToken = serde_json::from_str(&first_token).unwrap();
@@ -324,51 +321,27 @@ pub async fn main() {
         storage.update_token(&user_access_token).await.unwrap();
     }
 
+    // Discord credentials.
+    let http = Http::new_with_token(&config.discord.auth_token);
+    discord_commands::init_discord_bot(&http, &config.discord.auth_token).await;
+
     let irc_config = ClientConfig::new_simple(RefreshingLoginCredentials::new(
         config.twitch.login_name,
         config.twitch.client_id,
         config.twitch.secret,
         storage,
     ));
+
     let (mut incoming_messages, client) = TwitchIRCClient::<
         TCPTransport,
         RefreshingLoginCredentials<CustomTokenStorage>,
     >::new(irc_config);
-    let client = Arc::new(client);
-    let client_clone = Arc::clone(&client);
-
-    // Discord credentials.
-
-    let http = Arc::new(Http::new_with_token(&config.discord.auth_token));
-
-    let http2 = Arc::clone(&http);
 
     // Queue manager.
     let queue_manager = Arc::new(Mutex::new(QueueManager::new()));
 
     let discord_channel_id_clone = config.discord.channel_id.clone();
     let twitch_channel_name_clone = config.twitch.channel_name.clone();
-    // first thing you should do: start consuming incoming messages,
-    // otherwise they will back up.
-    let join_handle = tokio::spawn(async move {
-        while let Some(message) = incoming_messages.recv().await {
-            trace!("{:?}", message);
-            match message {
-                ServerMessage::Privmsg(msg) => {
-                    parse_command(
-                        msg,
-                        &client_clone,
-                        &http2,
-                        &twitch_channel_name_clone,
-                        discord_channel_id_clone,
-                        &queue_manager,
-                    )
-                    .await
-                }
-                _ => continue,
-            }
-        }
-    });
 
     // join a channel
     client.join(config.twitch.channel_name.to_owned());
@@ -380,7 +353,26 @@ pub async fn main() {
         .await
         .unwrap();
 
-    discord_commands::init_discord_bot(Arc::clone(&http), &config.discord.auth_token).await;
+    let join_handle = tokio::spawn(async move {
+        while let Some(message) = incoming_messages.recv().await {
+            trace!("{:?}", message);
+            match message {
+                ServerMessage::Privmsg(msg) => {
+                    parse_command(
+                        msg,
+                        client.clone(),
+                        &http,
+                        &twitch_channel_name_clone,
+                        discord_channel_id_clone,
+                        &queue_manager,
+                    )
+                    .await
+                }
+                _ => continue,
+            }
+        }
+    });
+
     // keep the tokio executor alive.
     // If you return instead of waiting the background task will exit.
     join_handle.await.unwrap();

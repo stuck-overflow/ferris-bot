@@ -233,7 +233,7 @@ fn _dispatch_error_no_macro<'fut>(
     .boxed()
 }
 
-pub async fn init_discord_bot(http: Arc<Http>, token: &str) {
+pub async fn init_discord_bot(http: &Http, token: &str) {
     // We will fetch your bot's owners and id
     let (owners, bot_id) = match http.get_current_application_info().await {
         Ok(info) => {
