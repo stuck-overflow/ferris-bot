@@ -15,158 +15,9 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::{fs, io, str};
 use structopt::StructOpt;
-use twitch_irc::login::{
-    LoginCredentials, RefreshingLoginCredentials, TokenStorage, UserAccessToken,
-};
-use twitch_irc::message::{PrivmsgMessage, ServerMessage};
-use twitch_irc::{ClientConfig, TCPTransport, Transport, TwitchIRCClient};
-
-async fn handle_join<T: Transport, L: LoginCredentials>(
-    client: TwitchIRCClient<T, L>,
-    twitch_channel_name: &str,
-    msg: PrivmsgMessage,
-    queue_manager: &Mutex<QueueManager>,
-) {
-    client
-        .say(
-            twitch_channel_name.to_owned(),
-            format!("@{}: Join requested", msg.sender.login),
-        )
-        .await
-        .unwrap();
-    queue_manager
-        .lock()
-        .unwrap()
-        .join(msg.sender.login, queue_manager::UserType::Default)
-        .unwrap();
-}
-
-async fn handle_queue<T: Transport, L: LoginCredentials>(
-    client: TwitchIRCClient<T, L>,
-    twitch_channel_name: &str,
-    msg: PrivmsgMessage,
-    queue_manager: &Mutex<QueueManager>,
-) {
-    let reply = {
-        let queue_manager = queue_manager.lock().unwrap();
-        queue_manager.queue().join(", ")
-    };
-    client
-        .say(
-            twitch_channel_name.to_owned(),
-            format!("@{}: Current queue: {}", msg.sender.login, reply),
-        )
-        .await
-        .unwrap();
-}
-
-async fn parse_command<T: Transport, L: LoginCredentials>(
-    msg: PrivmsgMessage,
-    client: TwitchIRCClient<T, L>,
-    http: &Http,
-    twitch_channel_name: &String,
-    discord_channel_id: u64,
-    queue_manager: &Mutex<QueueManager>,
-) {
-    let first_word = msg.message_text.split_whitespace().next();
-    let content = msg.message_text.replace(first_word.as_deref().unwrap(), "");
-    let first_word = first_word.unwrap().to_lowercase();
-    let first_word = Some(first_word.as_str());
-
-    match first_word {
-        Some("!join") => handle_join(client, twitch_channel_name, msg, queue_manager).await,
-        Some("!queue") => handle_queue(client, twitch_channel_name, msg, queue_manager).await,
-        Some("!pythonsucks") => client
-            .say(
-                twitch_channel_name.to_owned(),
-                format!("@{}: This must be Lord", msg.sender.login),
-            )
-            .await
-            .unwrap(),
-        Some("!stonk") => client
-            .say(
-                twitch_channel_name.to_owned(),
-                format!("@{}: yOu shOULd Buy AMC sTOnKS", msg.sender.login),
-            )
-            .await
-            .unwrap(),
-        Some("!c++") => client
-            .say(
-                twitch_channel_name.to_owned(),
-                format!("@{}: segmentation fault", msg.sender.login),
-            )
-            .await
-            .unwrap(),
-        Some("!dave") => client
-            .say(
-                twitch_channel_name.to_owned(),
-                include_str!("../assets/dave.txt").to_owned(),
-            )
-            .await
-            .unwrap(),
-        Some("!bazylia") => client
-            .say(
-                twitch_channel_name.to_owned(),
-                include_str!("../assets/bazylia.txt").to_owned(),
-            )
-            .await
-            .unwrap(),
-        Some("!zoya") => client
-            .say(
-                twitch_channel_name.to_owned(),
-                include_str!("../assets/zoya.txt").to_owned(),
-            )
-            .await
-            .unwrap(),
-        Some("!discord") => client
-            .say(
-                twitch_channel_name.to_owned(),
-                "https://discord.gg/UyrsFX7N".to_owned(),
-            )
-            .await
-            .unwrap(),
-        Some("!nothing") => nothing(http, discord_channel_id).await,
-        Some("!code") => save_code_format(http, content, discord_channel_id).await,
-        _ => {}
-    }
-}
-
-async fn nothing(http: &Http, discord_channel_id: u64) {
-    debug!("nothing received");
-    let _ = ChannelId(discord_channel_id)
-        .say(http, "This does nothing")
-        .await;
-}
-
-fn format_snippet(snippet: &str) -> Result<String, io::Error> {
-    let mut rustfmt = Command::new("rustfmt")
-        .args(&["--config", "newline_style=Unix"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()?;
-
-    let input = rustfmt.stdin.as_mut().expect("msg");
-    input.write_all(snippet.as_bytes())?;
-    let output = rustfmt.wait_with_output()?;
-    if output.status.success() {
-        String::from_utf8(output.stdout).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            String::from_utf8_lossy(&output.stdout),
-        ))
-    }
-}
-
-async fn save_code_format(http: &Http, message: String, discord_channel_id: u64) {
-    let formatted = format_snippet(&message).unwrap_or(message);
-    let content = format!("```rs\n{}\n```", formatted);
-
-    ChannelId(discord_channel_id)
-        .say(http, content)
-        .await
-        .unwrap();
-}
+use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken};
+use twitch_irc::message::{PrivmsgMessage, ServerMessage, TwitchUserBasics};
+use twitch_irc::{ClientConfig, TCPTransport, TwitchIRCClient};
 
 #[derive(Debug)]
 struct CustomTokenStorage {
@@ -268,7 +119,6 @@ pub async fn main() {
         .unwrap();
 
     let config = fs::read_to_string(args.config_file).unwrap();
-
     let config: FerrisBotConfig = toml::from_str(&config).unwrap();
 
     if args.show_auth_url {
@@ -289,7 +139,7 @@ pub async fn main() {
     }
 
     let mut storage = CustomTokenStorage {
-        token_checkpoint_file: config.twitch.token_filepath,
+        token_checkpoint_file: config.twitch.token_filepath.clone(),
     };
 
     if !args.first_token_file.is_empty() {
@@ -300,7 +150,7 @@ pub async fn main() {
         let user_access_token = MyUserAccessToken {
             access_token: first_token.access_token,
             refresh_token: first_token.refresh_token,
-            created_at: created_at,
+            created_at,
             expires_at: Some(expires_at),
         };
         let serialized = serde_json::to_string(&user_access_token).unwrap();
@@ -309,27 +159,32 @@ pub async fn main() {
     }
 
     // Discord credentials.
-    let http = Http::new_with_token(&config.discord.auth_token);
-    discord_commands::init_discord_bot(&http, &config.discord.auth_token).await;
+    let discord_http = Http::new_with_token(&config.discord.auth_token);
+    discord_commands::init_discord_bot(&discord_http, &config.discord.auth_token).await;
 
     let irc_config = ClientConfig::new_simple(RefreshingLoginCredentials::new(
-        config.twitch.login_name,
-        config.twitch.client_id,
-        config.twitch.secret,
+        config.twitch.login_name.clone(),
+        config.twitch.client_id.clone(),
+        config.twitch.secret.clone(),
         storage,
     ));
 
-    let (mut incoming_messages, client) = TwitchIRCClient::<TCPTransport, _>::new(irc_config);
+    let (mut incoming_messages, twitch_client) =
+        TwitchIRCClient::<TCPTransport, _>::new(irc_config);
 
-    // Queue manager.
-    let queue_manager = Arc::new(Mutex::new(QueueManager::new()));
-
-    let discord_channel_id_clone = config.discord.channel_id.clone();
-    let twitch_channel_name_clone = config.twitch.channel_name.clone();
+    let mut context = Context {
+        queue_manager: Arc::new(Mutex::new(QueueManager::new())),
+        twitch_client,
+        discord_http,
+    };
 
     // join a channel
-    client.join(config.twitch.channel_name.to_owned());
-    client
+    context
+        .twitch_client
+        .join(config.twitch.channel_name.to_owned());
+
+    context
+        .twitch_client
         .say(
             config.twitch.channel_name.to_owned(),
             "Hello! I am the Stuck-Bot, How may I unstick you?".to_owned(),
@@ -342,15 +197,9 @@ pub async fn main() {
             trace!("{:?}", message);
             match message {
                 ServerMessage::Privmsg(msg) => {
-                    parse_command(
-                        msg,
-                        client.clone(),
-                        &http,
-                        &twitch_channel_name_clone,
-                        discord_channel_id_clone,
-                        &queue_manager,
-                    )
-                    .await
+                    if let Some(cmd) = TwitchCommand::parse_msg(&msg) {
+                        cmd.handle(msg, &config, &mut context).await;
+                    }
                 }
                 _ => continue,
             }
@@ -362,9 +211,151 @@ pub async fn main() {
     join_handle.await.unwrap();
 }
 
+struct Context {
+    twitch_client: TwitchIRCClient<TCPTransport, RefreshingLoginCredentials<CustomTokenStorage>>,
+    queue_manager: Arc<Mutex<QueueManager>>,
+    discord_http: Http,
+}
+
+#[derive(Debug, PartialEq)]
+enum TwitchCommand {
+    Join,
+    Queue,
+    ReplyWith(&'static str),
+    Broadcast(&'static str),
+    Nothing,
+    DiscordSnippet(String),
+}
+
+impl TwitchCommand {
+    async fn handle(self, msg: PrivmsgMessage, config: &FerrisBotConfig, ctx: &mut Context) {
+        match self {
+            TwitchCommand::Join => {
+                ctx.twitch_client
+                    .say(
+                        msg.channel_login,
+                        format!("@{}: Join requested", &msg.sender.login),
+                    )
+                    .await
+                    .unwrap();
+
+                ctx.queue_manager
+                    .lock()
+                    .unwrap()
+                    .join(msg.sender.login, queue_manager::UserType::Default)
+                    .unwrap();
+            }
+
+            TwitchCommand::Queue => {
+                let reply = {
+                    let queue_manager = ctx.queue_manager.lock().unwrap();
+                    queue_manager.queue().join(", ")
+                };
+                ctx.twitch_client
+                    .say(
+                        msg.channel_login,
+                        format!("@{}: Current queue: {}", msg.sender.login, reply),
+                    )
+                    .await
+                    .unwrap();
+            }
+
+            TwitchCommand::ReplyWith(reply) => {
+                ctx.twitch_client
+                    .say(msg.channel_login, format!("@{}: {}", msg.sender.login, reply))
+                    .await
+                    .unwrap();
+            }
+
+            TwitchCommand::Broadcast(message) => {
+                ctx.twitch_client
+                    .say(msg.channel_login, message.to_owned())
+                    .await
+                    .unwrap();
+            }
+
+            TwitchCommand::Nothing => {
+                debug!("nothing received");
+                let _ = ChannelId(config.discord.channel_id)
+                    .say(&ctx.discord_http, "This does nothing")
+                    .await;
+            }
+
+            TwitchCommand::DiscordSnippet(snippet) => {
+                let formatted = format_snippet(&snippet).unwrap_or(snippet);
+                let code_block = format!("```rs\n{}\n```", formatted);
+
+                let _ = ChannelId(config.discord.channel_id)
+                    .say(&ctx.discord_http, code_block)
+                    .await;
+            }
+        }
+    }
+
+    fn parse_msg(msg: &PrivmsgMessage) -> Option<TwitchCommand> {
+        if !msg.message_text.starts_with('!') {
+            return None;
+        }
+
+        let args: Vec<&str> = msg.message_text.split_whitespace().collect();
+
+        match args.as_slice() {
+            ["!join", ..] => Some(TwitchCommand::Join),
+            ["!queue", ..] => Some(TwitchCommand::Queue),
+            ["!pythonsucks", ..] => Some(TwitchCommand::ReplyWith("This must be Lord")),
+            ["!stonk", ..] => Some(TwitchCommand::ReplyWith("yOu shOULd Buy AMC sTOnKS")),
+            ["!c++", ..] => Some(TwitchCommand::ReplyWith("segmentation fault")),
+            ["!dave", ..] => Some(TwitchCommand::Broadcast(include_str!("../assets/dave.txt"))),
+            ["!bazylia", ..] => Some(TwitchCommand::Broadcast(include_str!(
+                "../assets/bazylia.txt"
+            ))),
+            ["!zoya", ..] => Some(TwitchCommand::Broadcast(include_str!("../assets/zoya.txt"))),
+            ["!discord", ..] => Some(TwitchCommand::Broadcast("https://discord.gg/UyrsFX7N")),
+            ["!nothing", ..] => Some(TwitchCommand::Nothing),
+            ["!code", ..] => Some(TwitchCommand::DiscordSnippet(
+                msg.message_text.trim_start_matches("!code ").into(),
+            )),
+            _ => None,
+        }
+    }
+}
+
+fn format_snippet(snippet: &str) -> Result<String, io::Error> {
+    let mut rustfmt = Command::new("rustfmt")
+        .args(&["--config", "newline_style=Unix"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?;
+
+    let input = rustfmt.stdin.as_mut().expect("msg");
+    input.write_all(snippet.as_bytes())?;
+    let output = rustfmt.wait_with_output()?;
+    if output.status.success() {
+        String::from_utf8(output.stdout).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            String::from_utf8_lossy(&output.stdout),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parsing_commands() {
+        assert!(TwitchCommand::parse_msg(&test_msg("regular message text")).is_none());
+        assert_eq!(
+            TwitchCommand::parse_msg(&test_msg("!join")),
+            Some(TwitchCommand::Join)
+        );
+        assert_eq!(
+            TwitchCommand::parse_msg(&test_msg("!code snippet")),
+            Some(TwitchCommand::DiscordSnippet("snippet".into()))
+        );
+    }
 
     #[test]
     fn formatting_snippets() {
@@ -372,5 +363,35 @@ mod tests {
             format_snippet(r#"fn main() { println!("hello world"); }"#).as_deref(),
             Ok("fn main() {\n    println!(\"hello world\");\n}\n")
         ));
+    }
+
+    fn test_msg(message_text: &str) -> PrivmsgMessage {
+        use twitch_irc::message::IRCMessage;
+        use twitch_irc::message::IRCTags;
+
+        PrivmsgMessage {
+            channel_login: "channel_login".to_owned(),
+            channel_id: "channel_id".to_owned(),
+            message_text: message_text.to_owned(),
+            is_action: false,
+            sender: TwitchUserBasics {
+                id: "12345678".to_owned(),
+                login: "login".to_owned(),
+                name: "name".to_owned(),
+            },
+            badge_info: vec![],
+            badges: vec![],
+            bits: None,
+            name_color: None,
+            emotes: vec![],
+            server_timestamp: Utc::now(),
+            message_id: "1094e782-a8fc-4d95-a589-ad53e7c13d25".to_owned(),
+            source: IRCMessage {
+                tags: IRCTags::default(),
+                prefix: None,
+                command: String::new(),
+                params: vec![],
+            },
+        }
     }
 }
