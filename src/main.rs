@@ -11,10 +11,9 @@ use serenity::model::id::ChannelId;
 use simple_logger::SimpleLogger;
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::{fs, str};
+use std::{fs, io, str};
 use structopt::StructOpt;
 use twitch_irc::login::{
     LoginCredentials, RefreshingLoginCredentials, TokenStorage, UserAccessToken,
@@ -50,8 +49,7 @@ async fn handle_queue<T: Transport, L: LoginCredentials>(
 ) {
     let reply = {
         let queue_manager = queue_manager.lock().unwrap();
-        let queue = queue_manager.queue();
-        queue.join(", ")
+        queue_manager.queue().join(", ")
     };
     client
         .say(
@@ -128,7 +126,7 @@ async fn parse_command<T: Transport, L: LoginCredentials>(
             .await
             .unwrap(),
         Some("!nothing") => nothing(http, discord_channel_id).await,
-        Some("!code") => save_code_format(http, &content, discord_channel_id).await,
+        Some("!code") => save_code_format(http, content, discord_channel_id).await,
         _ => {}
     }
 }
@@ -140,21 +138,34 @@ async fn nothing(http: &Http, discord_channel_id: u64) {
         .await;
 }
 
-async fn send_code_discord(http: &Http, discord_channel_id: u64, code_file: &Path) {
-    let code_ex = fs::read_to_string(code_file).expect("nop you nop read file");
-    let code_ex = format!("{}{}{}", "```rs\n", code_ex, "```");
-    let _ = ChannelId(discord_channel_id).say(http, code_ex).await;
+fn format_snippet(snippet: &str) -> Result<String, io::Error> {
+    let mut rustfmt = Command::new("rustfmt")
+        .args(&["--config", "newline_style=Unix"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?;
+
+    let input = rustfmt.stdin.as_mut().expect("msg");
+    input.write_all(snippet.as_bytes())?;
+    let output = rustfmt.wait_with_output()?;
+    if output.status.success() {
+        String::from_utf8(output.stdout).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            String::from_utf8_lossy(&output.stdout),
+        ))
+    }
 }
 
-async fn save_code_format(http: &Http, message: &str, discord_channel_id: u64) {
-    let path = "chat_code.rs";
-    let mut file_path = File::create(path).unwrap();
-    write!(file_path, "{}", message).expect("not able to write");
-    let mut tidy = Command::new("rustfmt");
-    tidy.arg(path);
-    tidy.status().expect("not working");
-    let path = Path::new(path);
-    send_code_discord(http, discord_channel_id, path).await;
+async fn save_code_format(http: &Http, message: String, discord_channel_id: u64) {
+    let formatted = format_snippet(&message).unwrap_or(message);
+    let content = format!("```rs\n{}\n```", formatted);
+
+    ChannelId(discord_channel_id)
+        .say(http, content)
+        .await
+        .unwrap();
 }
 
 #[derive(Debug)]
@@ -349,4 +360,17 @@ pub async fn main() {
     // keep the tokio executor alive.
     // If you return instead of waiting the background task will exit.
     join_handle.await.unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formatting_snippets() {
+        assert!(matches!(
+            format_snippet(r#"fn main() { println!("hello world"); }"#).as_deref(),
+            Ok("fn main() {\n    println!(\"hello world\");\n}\n")
+        ));
+    }
 }
