@@ -300,23 +300,24 @@ impl TwitchCommand {
             return None;
         }
 
-        let args: Vec<&str> = msg.message_text.split_whitespace().collect();
+        let parts: Vec<&str> = msg.message_text.split_whitespace().collect();
+        let (cmd, args) = parts.split_first()?;
 
-        match args.as_slice() {
-            ["!join", ..] => Some(TwitchCommand::Join),
-            ["!queue", ..] => Some(TwitchCommand::Queue),
-            ["!pythonsucks", ..] => Some(TwitchCommand::ReplyWith("This must be Lord")),
-            ["!stonk", ..] => Some(TwitchCommand::ReplyWith("yOu shOULd Buy AMC sTOnKS")),
-            ["!c++", ..] => Some(TwitchCommand::ReplyWith("segmentation fault")),
-            ["!dave", ..] => Some(TwitchCommand::Broadcast(include_str!("../assets/dave.txt"))),
-            ["!bazylia", ..] => Some(TwitchCommand::Broadcast(include_str!(
+        match (cmd.to_lowercase().as_str(), args) {
+            ("!join", _) => Some(TwitchCommand::Join),
+            ("!queue", _) => Some(TwitchCommand::Queue),
+            ("!pythonsucks", _) => Some(TwitchCommand::ReplyWith("This must be Lord")),
+            ("!stonk", _) => Some(TwitchCommand::ReplyWith("yOu shOULd Buy AMC sTOnKS")),
+            ("!c++", _) => Some(TwitchCommand::ReplyWith("segmentation fault")),
+            ("!dave", _) => Some(TwitchCommand::Broadcast(include_str!("../assets/dave.txt"))),
+            ("!bazylia", _) => Some(TwitchCommand::Broadcast(include_str!(
                 "../assets/bazylia.txt"
             ))),
-            ["!zoya", ..] => Some(TwitchCommand::Broadcast(include_str!("../assets/zoya.txt"))),
-            ["!discord", ..] => Some(TwitchCommand::Broadcast("https://discord.gg/UyrsFX7N")),
-            ["!nothing", ..] => Some(TwitchCommand::Nothing),
-            ["!code", ..] => Some(TwitchCommand::DiscordSnippet(
-                msg.message_text.trim_start_matches("!code ").into(),
+            ("!zoya", _) => Some(TwitchCommand::Broadcast(include_str!("../assets/zoya.txt"))),
+            ("!discord", _) => Some(TwitchCommand::Broadcast("https://discord.gg/UyrsFX7N")),
+            ("!nothing", _) => Some(TwitchCommand::Nothing),
+            ("!code", _) => Some(TwitchCommand::DiscordSnippet(
+                msg.message_text.trim_start_matches(cmd).trim_start().into(),
             )),
             _ => None,
         }
@@ -354,9 +355,15 @@ mod tests {
             TwitchCommand::parse_msg(&test_msg("!join")),
             Some(TwitchCommand::Join)
         );
+
+        // commands should be case-insensitive with their arguments left untouched
         assert_eq!(
-            TwitchCommand::parse_msg(&test_msg("!code snippet")),
-            Some(TwitchCommand::DiscordSnippet("snippet".into()))
+            TwitchCommand::parse_msg(&test_msg("!sToNk")),
+            Some(TwitchCommand::ReplyWith("yOu shOULd Buy AMC sTOnKS"))
+        );
+        assert_eq!(
+            TwitchCommand::parse_msg(&test_msg("!cOdE fn main() {}")),
+            Some(TwitchCommand::DiscordSnippet("fn main() {}".into()))
         );
     }
 
