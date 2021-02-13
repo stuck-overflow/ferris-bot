@@ -172,7 +172,7 @@ pub async fn main() {
     let (mut incoming_messages, twitch_client) =
         TwitchIRCClient::<TCPTransport, _>::new(irc_config);
 
-    let mut context = Context {
+    let context = Context {
         queue_manager: Arc::new(Mutex::new(QueueManager::new())),
         twitch_client,
         discord_http,
@@ -198,7 +198,7 @@ pub async fn main() {
             match message {
                 ServerMessage::Privmsg(msg) => {
                     if let Some(cmd) = TwitchCommand::parse_msg(&msg) {
-                        cmd.handle(msg, &config, &mut context).await;
+                        cmd.handle(msg, &config, &context).await;
                     }
                 }
                 _ => continue,
@@ -228,7 +228,7 @@ enum TwitchCommand {
 }
 
 impl TwitchCommand {
-    async fn handle(self, msg: PrivmsgMessage, config: &FerrisBotConfig, ctx: &mut Context) {
+    async fn handle(self, msg: PrivmsgMessage, config: &FerrisBotConfig, ctx: &Context) {
         match self {
             TwitchCommand::Join => {
                 ctx.twitch_client
@@ -262,7 +262,10 @@ impl TwitchCommand {
 
             TwitchCommand::ReplyWith(reply) => {
                 ctx.twitch_client
-                    .say(msg.channel_login, format!("@{}: {}", msg.sender.login, reply))
+                    .say(
+                        msg.channel_login,
+                        format!("@{}: {}", msg.sender.login, reply),
+                    )
                     .await
                     .unwrap();
             }
