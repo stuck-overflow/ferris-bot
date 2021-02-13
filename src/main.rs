@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::{fs, io, str};
 use structopt::StructOpt;
 use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken};
-use twitch_irc::message::{PrivmsgMessage, ServerMessage, TwitchUserBasics};
+use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::{ClientConfig, TCPTransport, TwitchIRCClient};
 
 #[derive(Debug)]
@@ -329,17 +329,20 @@ fn format_snippet(snippet: &str) -> Result<String, io::Error> {
         .args(&["--config", "newline_style=Unix"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()?;
 
-    let input = rustfmt.stdin.as_mut().expect("msg");
+    let input = rustfmt.stdin.as_mut().unwrap();
     input.write_all(snippet.as_bytes())?;
+
     let output = rustfmt.wait_with_output()?;
+
     if output.status.success() {
         String::from_utf8(output.stdout).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
     } else {
         Err(io::Error::new(
             io::ErrorKind::Other,
-            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
         ))
     }
 }
@@ -369,15 +372,19 @@ mod tests {
 
     #[test]
     fn formatting_snippets() {
-        assert!(matches!(
-            format_snippet(r#"fn main() { println!("hello world"); }"#).as_deref(),
-            Ok("fn main() {\n    println!(\"hello world\");\n}\n")
-        ));
+        // converting to Option here because std::io::Error doesn't impl PartialEq
+        assert_eq!(
+            format_snippet(r#"fn main() { println!("hello world"); }"#)
+                .as_deref()
+                .ok(),
+            Some("fn main() {\n    println!(\"hello world\");\n}\n")
+        );
+
+        assert!(format_snippet(r#"totally not rust code"#).is_err());
     }
 
     fn test_msg(message_text: &str) -> PrivmsgMessage {
-        use twitch_irc::message::IRCMessage;
-        use twitch_irc::message::IRCTags;
+        use twitch_irc::message::{IRCMessage, IRCTags, TwitchUserBasics};
 
         PrivmsgMessage {
             channel_login: "channel_login".to_owned(),
