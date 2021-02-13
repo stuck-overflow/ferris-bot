@@ -56,12 +56,12 @@ async fn handle_queue<T: Transport, L: LoginCredentials>(
     let reply = {
         let queue_manager = queue_manager.lock().unwrap();
         let queue = queue_manager.queue();
-        queue.join(", ")
+        // TODO queue.join(", ")
     };
     client
         .say(
             twitch_channel_name.to_owned(),
-            format!("@{}: Current queue: {}", msg.sender.login, reply),
+            format!("@{}: Current queue: {}", msg.sender.login, "TODO".to_owned()),
         )
         .await
         .unwrap();
@@ -344,7 +344,8 @@ pub async fn main() {
     let http2 = Arc::clone(&http);
 
     // Queue manager.
-    let queue_manager = Arc::new(Mutex::new(QueueManager::new()));
+    // TODO: put the size of the queue in the configuration file.
+    let queue_manager = Arc::new(Mutex::new(QueueManager::new(20)));
 
     let discord_channel_id_clone = config.discord.channel_id.clone();
     let twitch_channel_name_clone = config.twitch.channel_name.clone();
