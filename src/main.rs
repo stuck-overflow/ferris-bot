@@ -122,6 +122,7 @@ pub async fn main() {
     let config = fs::read_to_string(args.config_file).unwrap();
     let config: FerrisBotConfig = toml::from_str(&config).unwrap();
 
+    /*
     if args.show_auth_url {
         println!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost&response_type=code&scope=chat:read%20chat:edit", config.twitch.client_id);
         std::process::exit(0);
@@ -138,30 +139,29 @@ pub async fn main() {
             args.auth_code);
         std::process::exit(0);
     }
+*/
 
     let mut storage = CustomTokenStorage {
         token_checkpoint_file: config.twitch.token_filepath.clone(),
     };
+    let first_token = twitch_auth::auth_flow(&config.twitch.client_id, &config.twitch.secret);
 
-    if !args.first_token_file.is_empty() {
-        let first_token = fs::read_to_string(args.first_token_file).unwrap();
-        let first_token: FirstToken = serde_json::from_str(&first_token).unwrap();
-        let created_at = Utc::now();
-        let expires_at = created_at + Duration::seconds(first_token.expires_in);
-        let user_access_token = MyUserAccessToken {
-            access_token: first_token.access_token,
-            refresh_token: first_token.refresh_token,
-            created_at,
-            expires_at: Some(expires_at),
-        };
-        let serialized = serde_json::to_string(&user_access_token).unwrap();
-        let user_access_token: UserAccessToken = serde_json::from_str(&serialized).unwrap();
-        storage.update_token(&user_access_token).await.unwrap();
-    }
+
+    let created_at = Utc::now();
+    let expires_at = created_at + Duration::seconds(first_token.expires_in);
+    let user_access_token = MyUserAccessToken {
+        access_token: first_token.access_token,
+        refresh_token: first_token.refresh_token,
+        created_at,
+        expires_at: Some(expires_at),
+    };
+    let serialized = serde_json::to_string(&user_access_token).unwrap();
+    let user_access_token: UserAccessToken = serde_json::from_str(&serialized).unwrap();
+    storage.update_token(&user_access_token).await.unwrap();
 
     // Discord credentials.
     let discord_http = Http::new_with_token(&config.discord.auth_token);
-    discord_commands::init_discord_bot(&discord_http, &config.discord.auth_token).await;
+//    discord_commands::init_discord_bot(&discord_http, &config.discord.auth_token).await;
 
     let irc_config = ClientConfig::new_simple(RefreshingLoginCredentials::new(
         config.twitch.login_name.clone(),
@@ -195,7 +195,7 @@ pub async fn main() {
 
     let join_handle = tokio::spawn(async move {
         while let Some(message) = incoming_messages.recv().await {
-            trace!("{:?}", message);
+            debug!("{:?}", message);
             match message {
                 ServerMessage::Privmsg(msg) => {
                     if let Some(cmd) = TwitchCommand::parse_msg(&msg) {

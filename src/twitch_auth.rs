@@ -12,14 +12,14 @@ struct TwitchAuthHook {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FirstToken {
-    access_token: String,
-    expires_in: i64,
-    refresh_token: String,
+    pub access_token: String,
+    pub expires_in: i64,
+    pub refresh_token: String,
 }
 
 impl TwitchAuthHook {
-    fn new(client_id: String, client_secret: String) -> TwitchAuthHook {
-        let http_server = Server::http("0.0.0.0:0").unwrap();
+    fn new(client_id: String, client_secret: String, port: i32) -> TwitchAuthHook {
+        let http_server = Server::http(format!("0.0.0.0:{}", port)).unwrap();
         TwitchAuthHook {
             client_id,
             client_secret,
@@ -71,30 +71,27 @@ impl TwitchAuthHook {
     }
 
     fn obtain_first_token(&self, auth_code: String) -> FirstToken {
-        self.obtain_first_token_impl(auth_code, "https://id.twitch.tv".to_owned())
+        self.obtain_first_token_impl(auth_code, "https://id.twitch.tv/oauth2/token".to_owned())
     }
 
     // This function is used for testing purposes to point at a fake server.
     fn obtain_first_token_impl(&self, auth_code: String, remote_http_host: String) -> FirstToken {
-        block_on(reqwest::get(&remote_http_host));
-        FirstToken {
-            access_token: "".to_owned(),
-            expires_in: 123,
-            refresh_token: "".to_owned(),
-        }
+        let url = format!("{}?code={}&client_id={}&client_secret={}&grant_type=authorization_code&redirect_uri=http://localhost:{}", &remote_http_host, &auth_code, self.client_id, self.client_secret, self.http_server.server_addr().port());
+        println!("posting to {}", url);
+        let result = block_on(async {
+            let client = reqwest::Client::new();
+            client.post(&url).send().await.unwrap().text().await.unwrap()
+        });
+        serde_json::from_str::<FirstToken>(&result).unwrap()
     }
 }
 
-pub fn auth_flow() -> FirstToken {
-    // Instantiate TwitchAuthHook
-    // call get_twitch_auth_url
-    // wait for user redirection on specified port
-    //  auth_flow_internal(server)
-    FirstToken {
-        access_token: "".to_owned(),
-        expires_in: 123,
-        refresh_token: "".to_owned(),
-    }
+pub fn auth_flow(client_id: &str, client_secret: &str) -> FirstToken {
+    let hook = TwitchAuthHook::new(String::from(client_id), String::from(client_secret), 10666);
+    println!("Yo user, please visit {}", hook.get_twitch_auth_url());
+    let auth = hook.receive_auth_token().unwrap();
+    
+    hook.obtain_first_token(auth)
 }
 
 #[cfg(test)]
@@ -107,7 +104,7 @@ mod tests {
     fn twitch_auth_url() {
         let client_id = "xxxxxx".to_owned();
         let client_secret = "".to_owned();
-        let hook = TwitchAuthHook::new(client_id.clone(), client_secret.clone());
+        let hook = TwitchAuthHook::new(client_id.clone(), client_secret.clone(), 0);
         let expected_address = format!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost:{}&response_type=code&scope=chat:read%20chat:edit", client_id, hook.http_server.server_addr().port());
         assert_eq!(hook.get_twitch_auth_url(), expected_address);
     }
@@ -116,7 +113,7 @@ mod tests {
     async fn receive_auth_token_redirect() {
         let client_id = "xxxxxx".to_owned();
         let client_secret = "".to_owned();
-        let hook = TwitchAuthHook::new(client_id.clone(), client_secret.clone());
+        let hook = TwitchAuthHook::new(client_id.clone(), client_secret.clone(), 0);
         let server_port = hook.http_server.server_addr().port();
         let received_auth_code = tokio::spawn(async move { hook.receive_auth_token() });
 
@@ -141,12 +138,17 @@ mod tests {
         let expected_client_id = "xxxxxx".to_owned();
         let expected_client_secret = "yyyyyyyy".to_owned();
         let expected_auth_code = "zzzzzzzz".to_owned();
+        let hook = TwitchAuthHook::new(expected_client_id.clone(), expected_client_secret.clone(), 0);
+        let bot_port = hook.http_server.server_addr().port();
         let expected_first_token = FirstToken {
             access_token: "xxxxxx".to_owned(),
             expires_in: 123,
             refresh_token: "yyyy".to_owned(),
         };
         let expected_first_token_clone = expected_first_token.clone();
+        let expected_auth_code_clone = expected_auth_code.clone();
+        let expected_client_id_clone = expected_client_id.clone();
+        let expected_client_secret_clone = expected_client_secret.clone();
         // start fake twitch server
         let http_server = Server::http("0.0.0.0:0").unwrap();
         let server_port = http_server.server_addr().port();
@@ -154,6 +156,50 @@ mod tests {
             match http_server.recv() {
                 Ok(rq) => {
                     println!("TWITCH FAKE SERVER: {:?}", rq);
+                    // https://id.twitch.tv/oauth2/token?
+                    // client_id=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&
+                    // client_secret=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz&
+                    // code=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy&
+                    // grant_type=authorization_code&
+                    // redirect_uri=http://localhost'
+
+
+                    assert_eq!(rq.method(), &tiny_http::Method::Post);
+                    // extract variables
+                    // verify expectations
+
+                    debug!("request: {:?}", rq);
+                    let url = format!(
+                        "http://localhost:{}{}",
+                        http_server.server_addr().port(),
+                        rq.url()
+                    );
+                    let url = Url::parse(&url).unwrap();
+                    let pairs = url.query_pairs();
+                    let mut actual_code = String::from("");
+                    let mut actual_client_id = String::from("");
+                    let mut actual_client_secret = String::from("");
+                    let mut actual_redirect_uri = String::from("");
+                    let mut actual_grant_type = String::from("");
+                    for (key, value) in pairs {
+                        println!("{} = {}", key, value);
+                        match &*key {
+                            "code" => actual_code = value.into_owned(),
+                            "client_id" => actual_client_id = value.into_owned(),
+                            "client_secret" => actual_client_secret = value.into_owned(),
+                            "grant_type" => actual_grant_type = value.into_owned(), 
+                            "redirect_uri" => actual_redirect_uri = value.into_owned(), 
+                            _ => continue,
+                        }
+                    }
+                    
+                    assert_eq!(expected_auth_code_clone, actual_code);
+                    assert_eq!(expected_client_id_clone, actual_client_id);
+                    assert_eq!(expected_client_secret_clone, actual_client_secret);
+                    assert_eq!("authorization_code", actual_grant_type);
+                    let expected_redirect_uri = format!("http://localhost:{}", bot_port);
+                    assert_eq!(expected_redirect_uri, actual_redirect_uri);
+
                     let response = Response::from_string(
                         serde_json::to_string(&expected_first_token_clone).unwrap(),
                     );
@@ -165,7 +211,6 @@ mod tests {
             };
         });
 
-        let hook = TwitchAuthHook::new(expected_client_id.clone(), expected_client_secret.clone());
         let first_token = hook.obtain_first_token_impl(
             expected_auth_code.clone(),
             format!("http://localhost:{}", server_port),
