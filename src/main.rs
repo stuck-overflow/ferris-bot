@@ -1,5 +1,6 @@
 mod discord_commands;
 mod queue_manager;
+mod twitch_auth;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
