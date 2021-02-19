@@ -18,7 +18,7 @@ structopt = "0.3.13"
 tiny_http = "0.6"
 tokio = { version = "1.1.0", features = ["full"] }
 toml = "0.4.2"
-twitch-irc = { version = "2.1.0", features = ["refreshing-token"] }
+twitch-irc = { version = "2.2.0", features = ["refreshing-token"] }
 url = "2.2.0"
 
 [dev-dependencies]
