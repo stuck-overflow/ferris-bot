@@ -1,5 +1,6 @@
 mod discord_commands;
 mod queue_manager;
+mod twitch_auth;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
@@ -31,9 +32,18 @@ impl TokenStorage for CustomTokenStorage {
 
     async fn load_token(&mut self) -> Result<UserAccessToken, Self::LoadError> {
         debug!("load_token called");
-        let token = fs::read_to_string(&self.token_checkpoint_file).unwrap();
-        let token: UserAccessToken = serde_json::from_str(&token).unwrap();
-        Ok(token)
+        let token = fs::read_to_string(&self.token_checkpoint_file);
+        if let Err(e) = token {
+            return Err(e);
+        }
+        let token: Result<UserAccessToken, _> = serde_json::from_str(&(token.unwrap()));
+        if let Err(e) = token {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Failed to deserialize token",
+            ));
+        }
+        Ok(token.unwrap())
     }
 
     async fn update_token(&mut self, token: &UserAccessToken) -> Result<(), Self::UpdateError> {
@@ -66,14 +76,6 @@ struct DiscordConfig {
     auth_token: String,
     channel_id: u64,
 }
-
-#[derive(Deserialize)]
-struct FirstToken {
-    access_token: String,
-    expires_in: i64,
-    refresh_token: String,
-}
-
 // Command-line arguments for the tool.
 #[derive(StructOpt)]
 struct Cli {
@@ -84,22 +86,6 @@ struct Cli {
     /// Twitch credential files.
     #[structopt(short, long, default_value = "ferrisbot.toml")]
     config_file: String,
-
-    /// Generates the curl command to obtain the first token and exits.
-    #[structopt(short, long)]
-    generate_curl_first_token_request: bool,
-
-    /// Auth code to be used when obtaining first token.
-    #[structopt(long, default_value = "")]
-    auth_code: String,
-
-    /// Show the authentication URL and exits.
-    #[structopt(short, long)]
-    show_auth_url: bool,
-
-    /// If present, parse the access token from the file passed as argument.
-    #[structopt(long, default_value = "")]
-    first_token_file: String,
 }
 
 #[tokio::main]
@@ -113,30 +99,16 @@ pub async fn main() {
     let config = fs::read_to_string(args.config_file).unwrap();
     let config: FerrisBotConfig = toml::from_str(&config).unwrap();
 
-    if args.show_auth_url {
-        println!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost&response_type=code&scope=chat:read%20chat:edit", config.twitch.client_id);
-        std::process::exit(0);
-    }
-
-    if args.generate_curl_first_token_request {
-        if args.auth_code.is_empty() {
-            println!("Please set --auth_code. Aborting.");
-            std::process::exit(1);
-        }
-        println!("curl -X POST 'https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=http://localhost' > /tmp/firsttoken.json",
-            config.twitch.client_id,
-            config.twitch.secret,
-            args.auth_code);
-        std::process::exit(0);
-    }
-
     let mut storage = CustomTokenStorage {
         token_checkpoint_file: config.twitch.token_filepath.clone(),
     };
 
-    if !args.first_token_file.is_empty() {
-        let first_token = fs::read_to_string(args.first_token_file).unwrap();
-        let first_token: FirstToken = serde_json::from_str(&first_token).unwrap();
+    // If we have some errors while loading the stored token, e.g. if we never
+    // stored one before or it's unparsable, go through the authentication
+    // workflow.
+    if let Err(_) = storage.load_token().await {
+        let first_token = twitch_auth::auth_flow(&config.twitch.client_id, &config.twitch.secret);
+
         let created_at = Utc::now();
         let expires_at = created_at + Duration::seconds(first_token.expires_in);
         let user_access_token = UserAccessToken {
@@ -150,7 +122,7 @@ pub async fn main() {
 
     // Discord credentials.
     let discord_http = Http::new_with_token(&config.discord.auth_token);
-    discord_commands::init_discord_bot(&discord_http, &config.discord.auth_token).await;
+    //    discord_commands::init_discord_bot(&discord_http, &config.discord.auth_token).await;
 
     let irc_config = ClientConfig::new_simple(RefreshingLoginCredentials::new(
         config.twitch.login_name.clone(),
