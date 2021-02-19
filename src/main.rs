@@ -123,29 +123,28 @@ pub async fn main() {
     let config: FerrisBotConfig = toml::from_str(&config).unwrap();
 
     /*
-    if args.show_auth_url {
-        println!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost&response_type=code&scope=chat:read%20chat:edit", config.twitch.client_id);
-        std::process::exit(0);
-    }
-
-    if args.generate_curl_first_token_request {
-        if args.auth_code.is_empty() {
-            println!("Please set --auth_code. Aborting.");
-            std::process::exit(1);
+        if args.show_auth_url {
+            println!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost&response_type=code&scope=chat:read%20chat:edit", config.twitch.client_id);
+            std::process::exit(0);
         }
-        println!("curl -X POST 'https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=http://localhost' > /tmp/firsttoken.json",
-            config.twitch.client_id,
-            config.twitch.secret,
-            args.auth_code);
-        std::process::exit(0);
-    }
-*/
+
+        if args.generate_curl_first_token_request {
+            if args.auth_code.is_empty() {
+                println!("Please set --auth_code. Aborting.");
+                std::process::exit(1);
+            }
+            println!("curl -X POST 'https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=http://localhost' > /tmp/firsttoken.json",
+                config.twitch.client_id,
+                config.twitch.secret,
+                args.auth_code);
+            std::process::exit(0);
+        }
+    */
 
     let mut storage = CustomTokenStorage {
         token_checkpoint_file: config.twitch.token_filepath.clone(),
     };
     let first_token = twitch_auth::auth_flow(&config.twitch.client_id, &config.twitch.secret);
-
 
     let created_at = Utc::now();
     let expires_at = created_at + Duration::seconds(first_token.expires_in);
@@ -161,7 +160,7 @@ pub async fn main() {
 
     // Discord credentials.
     let discord_http = Http::new_with_token(&config.discord.auth_token);
-//    discord_commands::init_discord_bot(&discord_http, &config.discord.auth_token).await;
+    //    discord_commands::init_discord_bot(&discord_http, &config.discord.auth_token).await;
 
     let irc_config = ClientConfig::new_simple(RefreshingLoginCredentials::new(
         config.twitch.login_name.clone(),
