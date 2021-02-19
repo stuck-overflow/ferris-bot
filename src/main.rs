@@ -1,14 +1,11 @@
-mod discord_commands;
 mod queue_manager;
 mod twitch_auth;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use log::{debug, trace, LevelFilter};
 use queue_manager::QueueManager;
-use serde::{Deserialize, Serialize};
-use serenity::http::Http;
-use serenity::model::id::ChannelId;
+use serde::Deserialize;
 use simple_logger::SimpleLogger;
 use std::fs::File;
 use std::io::Write;
@@ -37,7 +34,7 @@ impl TokenStorage for CustomTokenStorage {
             return Err(e);
         }
         let token: Result<UserAccessToken, _> = serde_json::from_str(&(token.unwrap()));
-        if let Err(e) = token {
+        if let Err(_) = token {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Failed to deserialize token",
@@ -59,7 +56,6 @@ impl TokenStorage for CustomTokenStorage {
 #[derive(Deserialize)]
 struct FerrisBotConfig {
     twitch: TwitchConfig,
-    discord: DiscordConfig,
 }
 
 #[derive(Deserialize)]
@@ -71,11 +67,6 @@ struct TwitchConfig {
     secret: String,
 }
 
-#[derive(Deserialize)]
-struct DiscordConfig {
-    auth_token: String,
-    channel_id: u64,
-}
 // Command-line arguments for the tool.
 #[derive(StructOpt)]
 struct Cli {
@@ -120,10 +111,6 @@ pub async fn main() {
         storage.update_token(&user_access_token).await.unwrap();
     }
 
-    // Discord credentials.
-    let discord_http = Http::new_with_token(&config.discord.auth_token);
-    //    discord_commands::init_discord_bot(&discord_http, &config.discord.auth_token).await;
-
     let irc_config = ClientConfig::new_simple(RefreshingLoginCredentials::new(
         config.twitch.login_name.clone(),
         config.twitch.client_id.clone(),
@@ -137,7 +124,6 @@ pub async fn main() {
     let context = Context {
         queue_manager: Arc::new(Mutex::new(QueueManager::new())),
         twitch_client,
-        discord_http,
     };
 
     // join a channel
@@ -160,7 +146,7 @@ pub async fn main() {
             match message {
                 ServerMessage::Privmsg(msg) => {
                     if let Some(cmd) = TwitchCommand::parse_msg(&msg) {
-                        cmd.handle(msg, &config, &context).await;
+                        cmd.handle(msg, &context).await;
                     }
                 }
                 _ => continue,
@@ -176,7 +162,6 @@ pub async fn main() {
 struct Context {
     twitch_client: TwitchIRCClient<TCPTransport, RefreshingLoginCredentials<CustomTokenStorage>>,
     queue_manager: Arc<Mutex<QueueManager>>,
-    discord_http: Http,
 }
 
 #[derive(Debug, PartialEq)]
@@ -185,12 +170,10 @@ enum TwitchCommand {
     Queue,
     ReplyWith(&'static str),
     Broadcast(&'static str),
-    Nothing,
-    DiscordSnippet(String),
 }
 
 impl TwitchCommand {
-    async fn handle(self, msg: PrivmsgMessage, config: &FerrisBotConfig, ctx: &Context) {
+    async fn handle(self, msg: PrivmsgMessage, ctx: &Context) {
         match self {
             TwitchCommand::Join => {
                 ctx.twitch_client
@@ -238,22 +221,6 @@ impl TwitchCommand {
                     .await
                     .unwrap();
             }
-
-            TwitchCommand::Nothing => {
-                debug!("nothing received");
-                let _ = ChannelId(config.discord.channel_id)
-                    .say(&ctx.discord_http, "This does nothing")
-                    .await;
-            }
-
-            TwitchCommand::DiscordSnippet(snippet) => {
-                let formatted = format_snippet(&snippet).unwrap_or(snippet);
-                let code_block = format!("```rs\n{}\n```", formatted);
-
-                let _ = ChannelId(config.discord.channel_id)
-                    .say(&ctx.discord_http, code_block)
-                    .await;
-            }
         }
     }
 
@@ -277,10 +244,7 @@ impl TwitchCommand {
             ))),
             ("!zoya", _) => Some(TwitchCommand::Broadcast(include_str!("../assets/zoya.txt"))),
             ("!discord", _) => Some(TwitchCommand::Broadcast("https://discord.gg/UyrsFX7N")),
-            ("!nothing", _) => Some(TwitchCommand::Nothing),
-            ("!code", _) => Some(TwitchCommand::DiscordSnippet(
-                msg.message_text.trim_start_matches(cmd).trim_start().into(),
-            )),
+            ("!nothing", _) => Some(TwitchCommand::ReplyWith("this commands does nothing!")),
             _ => None,
         }
     }
@@ -325,10 +289,6 @@ mod tests {
         assert_eq!(
             TwitchCommand::parse_msg(&test_msg("!sToNk")),
             Some(TwitchCommand::ReplyWith("yOu shOULd Buy AMC sTOnKS"))
-        );
-        assert_eq!(
-            TwitchCommand::parse_msg(&test_msg("!cOdE fn main() {}")),
-            Some(TwitchCommand::DiscordSnippet("fn main() {}".into()))
         );
     }
 
