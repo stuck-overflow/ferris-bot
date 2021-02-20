@@ -2,26 +2,16 @@ mod queue_manager;
 mod twitch_auth;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
-use clap::arg_enum;
-use log::LevelFilter;
-use log::{debug, trace};
-use queue_manager::QueueManager;
-use serde::{Deserialize, Serialize};
-use serenity::http::Http;
-use serenity::model::id::ChannelId;
 use chrono::{Duration, Utc};
+use itertools::join;
 use log::{debug, trace, LevelFilter};
 use queue_manager::QueueManager;
+use queue_manager::QueueManagerJoinError;
+use queue_manager::QueueManagerLeaveError;
 use serde::Deserialize;
 use simple_logger::SimpleLogger;
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
-use std::process::Command;
-use std::str;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::{fs, io, str};
@@ -135,7 +125,7 @@ pub async fn main() {
         TwitchIRCClient::<TCPTransport, _>::new(irc_config);
 
     let context = Context {
-        queue_manager: Arc::new(Mutex::new(QueueManager::new())),
+        queue_manager: Arc::new(Mutex::new(QueueManager::new(3))),
         twitch_client,
     };
 
@@ -181,6 +171,8 @@ struct Context {
 enum TwitchCommand {
     Join,
     Queue,
+    Leave,
+    Next,
     ReplyWith(&'static str),
     Broadcast(&'static str),
 }
@@ -189,25 +181,34 @@ impl TwitchCommand {
     async fn handle(self, msg: PrivmsgMessage, ctx: &Context) {
         match self {
             TwitchCommand::Join => {
+                // TODO check if user is subscriber
+                let result = ctx
+                    .queue_manager
+                    .lock()
+                    .unwrap()
+                    .join(&msg.sender.login, queue_manager::UserType::Default);
+
+                let message: &str;
+                match result {
+                    Err(QueueManagerJoinError::QueueFull) => message = "The Queue is full",
+                    Err(QueueManagerJoinError::UserAlreadyInQueue) => {
+                        message = "You have already joined the queue"
+                    }
+                    Ok(()) => message = "Successfully joined the queue",
+                }
+
                 ctx.twitch_client
                     .say(
                         msg.channel_login,
-                        format!("@{}: Join requested", &msg.sender.login),
+                        format!("@{}: {}", &msg.sender.login, message),
                     )
                     .await
                     .unwrap();
-
-                ctx.queue_manager
-                    .lock()
-                    .unwrap()
-                    .join(msg.sender.login, queue_manager::UserType::Default)
-                    .unwrap();
             }
-
             TwitchCommand::Queue => {
                 let reply = {
                     let queue_manager = ctx.queue_manager.lock().unwrap();
-                    queue_manager.queue().join(", ")
+                    join(queue_manager.queue(), ", ")
                 };
                 ctx.twitch_client
                     .say(
@@ -234,6 +235,44 @@ impl TwitchCommand {
                     .await
                     .unwrap();
             }
+
+            TwitchCommand::Leave => {
+                let result = ctx.queue_manager.lock().unwrap().leave(&msg.sender.login);
+
+                let message: &str;
+                match result {
+                    Err(QueueManagerLeaveError::UserNotInQueue) => message = "User is not in queue",
+                    Ok(()) => message = "Successfully left the Queue",
+                }
+
+                ctx.twitch_client
+                    .say(
+                        msg.channel_login,
+                        format!("@{}: {}", &msg.sender.login, message),
+                    )
+                    .await
+                    .unwrap();
+            }
+            TwitchCommand::Next => {
+                // TODO check if &msg.sender.login has enough powers.
+                let result = ctx.queue_manager.lock().unwrap().next();
+
+                let message: String;
+                match result {
+                    Some(next_user) => {
+                        message = format!("@{} is the next user to play!", next_user)
+                    }
+                    None => message = "There are no users in the queue".to_owned(),
+                }
+
+                ctx.twitch_client
+                    .say(
+                        msg.channel_login,
+                        format!("@{}: {}", &msg.sender.login, message),
+                    )
+                    .await
+                    .unwrap();
+            }
         }
     }
 
@@ -247,7 +286,9 @@ impl TwitchCommand {
 
         match (cmd.to_lowercase().as_str(), args) {
             ("!join", _) => Some(TwitchCommand::Join),
+            ("!leave", _) => Some(TwitchCommand::Leave),
             ("!queue", _) => Some(TwitchCommand::Queue),
+            ("!next", _) => Some(TwitchCommand::Next),
             ("!pythonsucks", _) => Some(TwitchCommand::ReplyWith("This must be Lord")),
             ("!stonk", _) => Some(TwitchCommand::ReplyWith("yOu shOULd Buy AMC sTOnKS")),
             ("!c++", _) => Some(TwitchCommand::ReplyWith("segmentation fault")),
