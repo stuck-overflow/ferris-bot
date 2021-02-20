@@ -42,11 +42,14 @@ impl QueueManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use random_string::{Charset, Charsets, RandomString};
+    use rand::{thread_rng, Rng, distributions::Alphanumeric};
     fn gen_random_user() -> String {
-        let charset = Charset::from_charsets(Charsets::Numbers);
-        let data = RandomString::generate(6, &charset);
-        data.to_string()
+        let rng = thread_rng();
+
+        rng.sample_iter(Alphanumeric)
+            .take(6)
+            .map(char::from)
+            .collect()
     }
 
     #[test]
