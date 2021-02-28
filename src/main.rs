@@ -11,10 +11,8 @@ use queue_manager::QueueManagerLeaveError;
 use serde::Deserialize;
 use simple_logger::SimpleLogger;
 use std::fs::File;
-use std::io::Write;
-use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::{fs, io, str};
+use std::{fs, str};
 use structopt::StructOpt;
 use twitch_api2::TwitchClient;
 use twitch_api2::helix::subscriptions::GetBroadcasterSubscriptionsRequest;
@@ -338,29 +336,6 @@ impl TwitchCommand {
     }
 }
 
-fn format_snippet(snippet: &str) -> Result<String, io::Error> {
-    let mut rustfmt = Command::new("rustfmt")
-        .args(&["--config", "newline_style=Unix"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-
-    let input = rustfmt.stdin.as_mut().unwrap();
-    input.write_all(snippet.as_bytes())?;
-
-    let output = rustfmt.wait_with_output()?;
-
-    if output.status.success() {
-        String::from_utf8(output.stdout).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            String::from_utf8_lossy(&output.stderr),
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,19 +353,6 @@ mod tests {
             TwitchCommand::parse_msg(&test_msg("!sToNk")),
             Some(TwitchCommand::ReplyWith("yOu shOULd Buy AMC sTOnKS"))
         );
-    }
-
-    #[test]
-    fn formatting_snippets() {
-        // converting to Option here because std::io::Error doesn't impl PartialEq
-        assert_eq!(
-            format_snippet(r#"fn main() { println!("hello world"); }"#)
-                .as_deref()
-                .ok(),
-            Some("fn main() {\n    println!(\"hello world\");\n}\n")
-        );
-
-        assert!(format_snippet(r#"totally not rust code"#).is_err());
     }
 
     fn test_msg(message_text: &str) -> PrivmsgMessage {
