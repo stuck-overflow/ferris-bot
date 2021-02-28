@@ -30,8 +30,9 @@ impl QueueManager {
     }
 
     pub fn join(&mut self, name: &str, user_type: UserType) -> Result<(), QueueManagerJoinError> {
-        if self.queue_subscribers.iter().any(|x| x == name) || 
-           self.queue_users.iter().any(|x| x == name) {
+        if self.queue_subscribers.iter().any(|x| x == name)
+            || self.queue_users.iter().any(|x| x == name)
+        {
             return Err(QueueManagerJoinError::UserAlreadyInQueue);
         }
         if (self.queue_subscribers.len() + self.queue_users.len()) == self.capacity {
@@ -45,8 +46,8 @@ impl QueueManager {
     }
 
     pub fn queue(&self) -> impl Iterator<Item = &String> {
-        // TODO we should return an iterator of the concatenation of queue_subscribers and queue_users
-        self.queue_users.iter()
+        // Subscribers are always at the beginning of the queue.
+        self.queue_subscribers.iter().chain(self.queue_users.iter())
     }
 
     pub fn next(&mut self) -> Option<String> {
@@ -57,14 +58,22 @@ impl QueueManager {
         }
     }
 
-    pub fn leave(&mut self, name: &str) -> Result<(), QueueManagerLeaveError> {
-        match self.queue_users.iter().position(|x| x == name) {
+    fn remove_from_queue(
+        queue: &mut VecDeque<String>,
+        name: &str,
+    ) -> Result<(), QueueManagerLeaveError> {
+        match queue.iter().position(|x| x == name) {
             Some(i) => {
-                self.queue_users.remove(i);
+                queue.remove(i);
                 Ok(())
             }
             None => Err(QueueManagerLeaveError::UserNotInQueue),
         }
+    }
+
+    pub fn leave(&mut self, name: &str) -> Result<(), QueueManagerLeaveError> {
+        QueueManager::remove_from_queue(&mut self.queue_subscribers, name)
+            .or_else(|_| QueueManager::remove_from_queue(&mut self.queue_users, name))
     }
 }
 
@@ -97,9 +106,10 @@ mod tests {
             ));
             users.push(random_user);
 
-            // TODO test the case in which a default user joins, and then attempts joining again as a subscriber.
             let random_subscriber = gen_random_user();
-            assert!(queue_man.join(&random_subscriber, UserType::Subscriber).is_ok());
+            assert!(queue_man
+                .join(&random_subscriber, UserType::Subscriber)
+                .is_ok());
             // Second invocation with same user should fail.
             let result = queue_man.join(&random_subscriber, UserType::Subscriber);
             assert!(matches!(
@@ -113,11 +123,14 @@ mod tests {
         let result = queue_man.join(&random_user, UserType::Default);
         assert!(matches!(result, Err(QueueManagerJoinError::QueueFull)));
 
-        // fi_usersrst in queue should be the subscribers.
+        // first in queue should be the subscribers.
         for i in 0..3 {
-            assert_eq!(queue_man.next(), Some(subscribers.get(i).unwrap().to_owned()));
+            assert_eq!(
+                queue_man.next(),
+                Some(subscribers.get(i).unwrap().to_owned())
+            );
         }
-        // next we should see the users.
+        // next we should see the other users.
         for i in 0..3 {
             assert_eq!(queue_man.next(), Some(users.get(i).unwrap().to_owned()));
         }
@@ -127,7 +140,7 @@ mod tests {
     #[test]
     fn test_queue_leave() {
         let mut queue_man = QueueManager::new(3);
-        
+
         let random_user_1 = gen_random_user();
         let random_user_2 = gen_random_user();
         let random_user_3 = gen_random_user();
@@ -137,16 +150,25 @@ mod tests {
         assert!(queue_man.queue().any(|x| x == &random_user_1));
         assert!(queue_man.queue().any(|x| x == &random_user_2));
         assert!(queue_man.queue().any(|x| x == &random_user_3));
-        
+
         assert!(queue_man.leave(&random_user_2).is_ok());
         assert!(queue_man.queue().any(|x| x == &random_user_1));
         assert!(!queue_man.queue().any(|x| x == &random_user_2));
-       
+        assert!(queue_man.queue().any(|x| x == &random_user_3));
+
         assert!(matches!(
             queue_man.leave(&random_user_2),
             Err(QueueManagerLeaveError::UserNotInQueue)
-        ))
+        ));
 
-        // TODO make random_user_3 leave.
+        assert!(queue_man.leave(&random_user_3).is_ok());
+        assert!(queue_man.queue().any(|x| x == &random_user_1));
+        assert!(!queue_man.queue().any(|x| x == &random_user_2));
+        assert!(!queue_man.queue().any(|x| x == &random_user_3));
+
+        assert!(matches!(
+            queue_man.leave(&random_user_3),
+            Err(QueueManagerLeaveError::UserNotInQueue)
+        ));
     }
 }

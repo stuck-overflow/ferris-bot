@@ -13,12 +13,17 @@ use simple_logger::SimpleLogger;
 use std::fs::File;
 use std::io::Write;
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::{fs, io, str};
 use structopt::StructOpt;
+use twitch_api2::TwitchClient;
+use twitch_api2::helix::subscriptions::GetBroadcasterSubscriptionsRequest;
+use twitch_api2::helix::users::GetUsersRequest;
 use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken};
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::{ClientConfig, TCPTransport, TwitchIRCClient};
+use twitch_api2::twitch_oauth2;
+use twitch_api2::twitch_oauth2::UserToken;
 
 #[derive(Debug)]
 struct CustomTokenStorage {
@@ -32,18 +37,14 @@ impl TokenStorage for CustomTokenStorage {
 
     async fn load_token(&mut self) -> Result<UserAccessToken, Self::LoadError> {
         debug!("load_token called");
-        let token = fs::read_to_string(&self.token_checkpoint_file);
-        if let Err(e) = token {
-            return Err(e);
-        }
-        let token: Result<UserAccessToken, _> = serde_json::from_str(&(token.unwrap()));
-        if let Err(_) = token {
-            return Err(std::io::Error::new(
+        let token = fs::read_to_string(&self.token_checkpoint_file)?;
+        let token = serde_json::from_str::<UserAccessToken>(&(token)).map_err(|_| {
+            std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Failed to deserialize token",
-            ));
-        }
-        Ok(token.unwrap())
+            )
+        })?;
+        Ok(token)
     }
 
     async fn update_token(&mut self, token: &UserAccessToken) -> Result<(), Self::UpdateError> {
@@ -56,12 +57,12 @@ impl TokenStorage for CustomTokenStorage {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct FerrisBotConfig {
     twitch: TwitchConfig,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct TwitchConfig {
     token_filepath: String,
     login_name: String,
@@ -121,27 +122,28 @@ pub async fn main() {
         storage,
     ));
 
-    let (mut incoming_messages, twitch_client) =
+    let (mut incoming_messages, twitch_irc_client) =
         TwitchIRCClient::<TCPTransport, _>::new(irc_config);
 
     let context = Context {
-        queue_manager: Arc::new(Mutex::new(QueueManager::new(3))),
-        twitch_client,
+        ferris_bot_config: config.clone(),
+        queue_manager: Mutex::new(QueueManager::new(3)),
+        twitch_irc_client,
     };
 
     // join a channel
     context
-        .twitch_client
+        .twitch_irc_client
         .join(config.twitch.channel_name.to_owned());
 
-    context
-        .twitch_client
-        .say(
-            config.twitch.channel_name.to_owned(),
-            "Hello! I am the Stuck-Bot, How may I unstick you?".to_owned(),
-        )
-        .await
-        .unwrap();
+    // context
+    //     .twitch_irc_client
+    //     .say(
+    //         config.twitch.channel_name.to_owned(),
+    //         "Hello! I am the Stuck-Bot, How may I unstick you?".to_owned(),
+    //     )
+    //     .await
+    //     .unwrap();
 
     let join_handle = tokio::spawn(async move {
         while let Some(message) = incoming_messages.recv().await {
@@ -163,8 +165,10 @@ pub async fn main() {
 }
 
 struct Context {
-    twitch_client: TwitchIRCClient<TCPTransport, RefreshingLoginCredentials<CustomTokenStorage>>,
-    queue_manager: Arc<Mutex<QueueManager>>,
+    ferris_bot_config: FerrisBotConfig,
+    twitch_irc_client:
+        TwitchIRCClient<TCPTransport, RefreshingLoginCredentials<CustomTokenStorage>>,
+    queue_manager: Mutex<QueueManager>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -181,7 +185,37 @@ impl TwitchCommand {
     async fn handle(self, msg: PrivmsgMessage, ctx: &Context) {
         match self {
             TwitchCommand::Join => {
-                // TODO check if user is subscriber
+                debug!("Join received");
+                let client = reqwest::Client::new();
+                let twitch_api_client = TwitchClient::with_client(client);
+                let token = fs::read_to_string(&ctx.ferris_bot_config.twitch.token_filepath).unwrap();
+                let token = serde_json::from_str::<UserAccessToken>(&(token)).unwrap();
+                let token = UserToken::from_existing_unchecked(
+                    twitch_oauth2::AccessToken::new(token.access_token),
+                    Some(twitch_oauth2::RefreshToken::new(token.refresh_token)),
+                    twitch_oauth2::ClientId::new(ctx.ferris_bot_config.twitch.client_id.clone()), 
+                    Some(twitch_oauth2::ClientSecret::new(ctx.ferris_bot_config.twitch.secret.clone())),
+                    Some(ctx.ferris_bot_config.twitch.login_name.clone()),
+                    Some(vec![twitch_oauth2::Scope::ChatRead, twitch_oauth2::Scope::ChatEdit, twitch_oauth2::Scope::ChannelReadSubscriptions]));
+                debug!("{:?}", token);
+                let req = GetUsersRequest::builder().login(vec![ctx.ferris_bot_config.twitch.login_name.clone()]).build();
+                let req =  twitch_api_client.helix.req_get(req, &token).await.unwrap();
+                let broadcaster = req.data.get(0).unwrap();
+                let req = GetBroadcasterSubscriptionsRequest::builder()
+                .broadcaster_id(broadcaster.id.clone())
+                .user_id(vec![msg.sender.id.clone()])
+                .build();
+                debug!("{:?}", req);
+                let req = tokio::spawn(async move { 
+                    twitch_api_client.helix.req_get(req, &token).await
+                }).await;
+                match req {
+                    Ok(r) => {
+                        println!("{:?}", r)
+                // println!("{:?}", &ctx.twitch_api_client.req_get(req, &token).await.unwrap().data.get(0));
+                    },
+                    Err(e) => println!("{:?}", e),
+                } 
                 let result = ctx
                     .queue_manager
                     .lock()
@@ -197,10 +231,10 @@ impl TwitchCommand {
                     Ok(()) => message = "Successfully joined the queue",
                 }
 
-                ctx.twitch_client
+                ctx.twitch_irc_client
                     .say(
                         msg.channel_login,
-                        format!("@{}: {}", &msg.sender.login, message),
+                        format!("@{} ({:?}): {}", &msg.sender.login, &msg.badges, message),
                     )
                     .await
                     .unwrap();
@@ -210,7 +244,7 @@ impl TwitchCommand {
                     let queue_manager = ctx.queue_manager.lock().unwrap();
                     join(queue_manager.queue(), ", ")
                 };
-                ctx.twitch_client
+                ctx.twitch_irc_client
                     .say(
                         msg.channel_login,
                         format!("@{}: Current queue: {}", msg.sender.login, reply),
@@ -220,7 +254,7 @@ impl TwitchCommand {
             }
 
             TwitchCommand::ReplyWith(reply) => {
-                ctx.twitch_client
+                ctx.twitch_irc_client
                     .say(
                         msg.channel_login,
                         format!("@{}: {}", msg.sender.login, reply),
@@ -230,7 +264,7 @@ impl TwitchCommand {
             }
 
             TwitchCommand::Broadcast(message) => {
-                ctx.twitch_client
+                ctx.twitch_irc_client
                     .say(msg.channel_login, message.to_owned())
                     .await
                     .unwrap();
@@ -245,7 +279,7 @@ impl TwitchCommand {
                     Ok(()) => message = "Successfully left the Queue",
                 }
 
-                ctx.twitch_client
+                ctx.twitch_irc_client
                     .say(
                         msg.channel_login,
                         format!("@{}: {}", &msg.sender.login, message),
@@ -265,7 +299,7 @@ impl TwitchCommand {
                     None => message = "There are no users in the queue".to_owned(),
                 }
 
-                ctx.twitch_client
+                ctx.twitch_irc_client
                     .say(
                         msg.channel_login,
                         format!("@{}: {}", &msg.sender.login, message),

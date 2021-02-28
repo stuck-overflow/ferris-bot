@@ -43,7 +43,7 @@ impl TwitchAuthHook {
 
     fn get_twitch_auth_url(&self) -> String {
         format!(
-            "https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost:{}&response_type=code&scope=chat:read%20chat:edit",
+            "https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost:{}&response_type=code&scope=chat:read%20chat:edit%20channel:read:subscriptions",
             self.client_id,
             self.http_server.server_addr().port()
         )
