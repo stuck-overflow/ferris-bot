@@ -14,14 +14,9 @@ use std::fs::File;
 use std::sync::Mutex;
 use std::{fs, str};
 use structopt::StructOpt;
-use twitch_api2::TwitchClient;
-use twitch_api2::helix::subscriptions::GetBroadcasterSubscriptionsRequest;
-use twitch_api2::helix::users::GetUsersRequest;
 use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken};
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::{ClientConfig, TCPTransport, TwitchIRCClient};
-use twitch_api2::twitch_oauth2;
-use twitch_api2::twitch_oauth2::UserToken;
 
 #[derive(Debug)]
 struct CustomTokenStorage {
@@ -124,7 +119,6 @@ pub async fn main() {
         TwitchIRCClient::<TCPTransport, _>::new(irc_config);
 
     let context = Context {
-        ferris_bot_config: config.clone(),
         queue_manager: Mutex::new(QueueManager::new(3)),
         twitch_irc_client,
     };
@@ -163,7 +157,6 @@ pub async fn main() {
 }
 
 struct Context {
-    ferris_bot_config: FerrisBotConfig,
     twitch_irc_client:
         TwitchIRCClient<TCPTransport, RefreshingLoginCredentials<CustomTokenStorage>>,
     queue_manager: Mutex<QueueManager>,
@@ -184,6 +177,19 @@ impl TwitchCommand {
         match self {
             TwitchCommand::Join => {
                 debug!("Join received");
+                /*
+                This piece of code uses the twitch_api2 library to retrieve the subscribtion status.
+                This approach has the limitation it requires the bot to run as the same user as the
+                broadcaster, since the broadcaster is the only user with access to the authoritative
+                list of subscribers.
+
+                In any case, this is currently broken. First: it requires to use the alpha version
+                of the twitch_api2 because the stable version depends on a version of tokio
+                incompatible with the one used in this bot. Second: the call currently fails to
+                parse, see https://github.com/Emilgardis/twitch_api2/issues/80 .
+
+                (this code requires to store the bot config object in a `ferris_bot_config` field
+                 in the `Context`)
                 let client = reqwest::Client::new();
                 let twitch_api_client = TwitchClient::with_client(client);
                 let token = fs::read_to_string(&ctx.ferris_bot_config.twitch.token_filepath).unwrap();
@@ -210,10 +216,13 @@ impl TwitchCommand {
                 match req {
                     Ok(r) => {
                         println!("{:?}", r)
-                // println!("{:?}", &ctx.twitch_api_client.req_get(req, &token).await.unwrap().data.get(0));
                     },
                     Err(e) => println!("{:?}", e),
                 } 
+                */
+
+                // TODO check if msg.badges contains a "subscription" badge.
+
                 let result = ctx
                     .queue_manager
                     .lock()

@@ -133,7 +133,7 @@ mod tests {
         let client_secret = "".to_owned();
         let hook = TwitchAuthHook::new(client_id.clone(), client_secret.clone(), 0);
         let expected_address = format!(
-            "https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost:{}&response_type=code&scope=chat:read%20chat:edit",
+            "https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=http://localhost:{}&response_type=code&scope=chat:read%20chat:edit%20channel:read:subscriptions",
             client_id,
             hook.http_server.server_addr().port());
         assert_eq!(hook.get_twitch_auth_url(), expected_address);
