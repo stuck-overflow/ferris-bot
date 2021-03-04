@@ -145,15 +145,6 @@ pub async fn main() {
         .twitch_irc_client
         .join(config.twitch.channel_name.to_owned());
 
-    // context
-    //     .twitch_irc_client
-    //     .say(
-    //         config.twitch.channel_name.to_owned(),
-    //         "Hello! I am the Stuck-Bot, How may I unstick you?".to_owned(),
-    //     )
-    //     .await
-    //     .unwrap();
-
     let join_handle = tokio::spawn(async move {
         while let Some(message) = incoming_messages.recv().await {
             trace!("{:?}", message);
@@ -241,20 +232,6 @@ impl TwitchCommand {
         match self {
             TwitchCommand::Join => {
                 debug!("Join received");
-                /*
-                This piece of code uses the twitch_api2 library to retrieve the subscribtion status.
-                This approach has the limitation it requires the bot to run as the same user as the
-                broadcaster, since the broadcaster is the only user with access to the authoritative
-                list of subscribers.
-
-                In any case, this is currently broken. First: it requires to use the alpha version
-                of the twitch_api2 because the stable version depends on a version of tokio
-                incompatible with the one used in this bot. Second: the call currently fails to
-                parse, see https://github.com/Emilgardis/twitch_api2/issues/80 .
-
-                (this code requires to store the bot config object in a `ferris_bot_config` field
-                 in the `Context`)
-                */
 
                 let user_type = if is_user_subscriber(&ctx, &msg.sender.login, &msg.badges).await {
                     queue_manager::UserType::Subscriber
