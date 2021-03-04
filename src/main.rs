@@ -14,7 +14,13 @@ use std::fs::File;
 use std::sync::Mutex;
 use std::{fs, str};
 use structopt::StructOpt;
+use twitch_api2::helix::subscriptions::GetBroadcasterSubscriptionsRequest;
+use twitch_api2::helix::users::GetUsersRequest;
+use twitch_api2::twitch_oauth2;
+use twitch_api2::twitch_oauth2::UserToken;
+use twitch_api2::TwitchClient;
 use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken};
+use twitch_irc::message::Badge;
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::{ClientConfig, TCPTransport, TwitchIRCClient};
 
@@ -53,6 +59,7 @@ impl TokenStorage for CustomTokenStorage {
 #[derive(Clone, Deserialize)]
 struct FerrisBotConfig {
     twitch: TwitchConfig,
+    queue_manager: QueueManagerConfig,
 }
 
 #[derive(Clone, Deserialize)]
@@ -62,6 +69,12 @@ struct TwitchConfig {
     channel_name: String,
     client_id: String,
     secret: String,
+}
+
+#[derive(Clone, Deserialize)]
+struct QueueManagerConfig {
+    capacity: usize,
+    queue_storage: String,
 }
 
 // Command-line arguments for the tool.
@@ -119,7 +132,11 @@ pub async fn main() {
         TwitchIRCClient::<TCPTransport, _>::new(irc_config);
 
     let context = Context {
-        queue_manager: Mutex::new(QueueManager::new(3)),
+        ferris_bot_config: config.clone(),
+        queue_manager: Mutex::new(QueueManager::new(
+            config.queue_manager.capacity,
+            &config.queue_manager.queue_storage,
+        )),
         twitch_irc_client,
     };
 
@@ -156,7 +173,54 @@ pub async fn main() {
     join_handle.await.unwrap();
 }
 
+async fn is_user_subscriber(ctx: &Context, user: &str, badges: &Vec<Badge>) -> bool {
+    for b in badges {
+        if b.name == "founder" || b.name == "subscriber" {
+            return true;
+        }
+    }
+    let client = reqwest::Client::new();
+    let twitch_api_client = TwitchClient::with_client(client);
+    let token = fs::read_to_string(&ctx.ferris_bot_config.twitch.token_filepath).unwrap();
+    let token = serde_json::from_str::<UserAccessToken>(&(token)).unwrap();
+    let token = UserToken::from_existing_unchecked(
+        twitch_oauth2::AccessToken::new(token.access_token),
+        Some(twitch_oauth2::RefreshToken::new(token.refresh_token)),
+        twitch_oauth2::ClientId::new(ctx.ferris_bot_config.twitch.client_id.clone()),
+        Some(twitch_oauth2::ClientSecret::new(
+            ctx.ferris_bot_config.twitch.secret.clone(),
+        )),
+        Some(ctx.ferris_bot_config.twitch.login_name.clone()),
+        Some(vec![
+            twitch_oauth2::Scope::ChatRead,
+            twitch_oauth2::Scope::ChatEdit,
+            twitch_oauth2::Scope::ChannelReadSubscriptions,
+        ]),
+    );
+    debug!("{:?}", token);
+
+    let req = GetUsersRequest::builder()
+        .login(vec![ctx.ferris_bot_config.twitch.login_name.clone()])
+        .build();
+    let req = twitch_api_client.helix.req_get(req, &token).await.unwrap();
+    let broadcaster = req.data.get(0).unwrap();
+    let req = GetBroadcasterSubscriptionsRequest::builder()
+        .broadcaster_id(broadcaster.id.clone())
+        .user_id(vec![user.to_owned()])
+        .build();
+    debug!("{:?}", req);
+    let req = tokio::spawn(async move { twitch_api_client.helix.req_get(req, &token).await })
+        .await
+        .unwrap();
+    debug!("{:?}", req);
+
+    match req {
+        Ok(r) => r.data.len() != 0,
+        Err(_) => false,
+    }
+}
 struct Context {
+    ferris_bot_config: FerrisBotConfig,
     twitch_irc_client:
         TwitchIRCClient<TCPTransport, RefreshingLoginCredentials<CustomTokenStorage>>,
     queue_manager: Mutex<QueueManager>,
@@ -190,44 +254,18 @@ impl TwitchCommand {
 
                 (this code requires to store the bot config object in a `ferris_bot_config` field
                  in the `Context`)
-                let client = reqwest::Client::new();
-                let twitch_api_client = TwitchClient::with_client(client);
-                let token = fs::read_to_string(&ctx.ferris_bot_config.twitch.token_filepath).unwrap();
-                let token = serde_json::from_str::<UserAccessToken>(&(token)).unwrap();
-                let token = UserToken::from_existing_unchecked(
-                    twitch_oauth2::AccessToken::new(token.access_token),
-                    Some(twitch_oauth2::RefreshToken::new(token.refresh_token)),
-                    twitch_oauth2::ClientId::new(ctx.ferris_bot_config.twitch.client_id.clone()), 
-                    Some(twitch_oauth2::ClientSecret::new(ctx.ferris_bot_config.twitch.secret.clone())),
-                    Some(ctx.ferris_bot_config.twitch.login_name.clone()),
-                    Some(vec![twitch_oauth2::Scope::ChatRead, twitch_oauth2::Scope::ChatEdit, twitch_oauth2::Scope::ChannelReadSubscriptions]));
-                debug!("{:?}", token);
-                let req = GetUsersRequest::builder().login(vec![ctx.ferris_bot_config.twitch.login_name.clone()]).build();
-                let req =  twitch_api_client.helix.req_get(req, &token).await.unwrap();
-                let broadcaster = req.data.get(0).unwrap();
-                let req = GetBroadcasterSubscriptionsRequest::builder()
-                .broadcaster_id(broadcaster.id.clone())
-                .user_id(vec![msg.sender.id.clone()])
-                .build();
-                debug!("{:?}", req);
-                let req = tokio::spawn(async move { 
-                    twitch_api_client.helix.req_get(req, &token).await
-                }).await;
-                match req {
-                    Ok(r) => {
-                        println!("{:?}", r)
-                    },
-                    Err(e) => println!("{:?}", e),
-                } 
                 */
 
-                // TODO check if msg.badges contains a "subscription" badge.
-
+                let user_type = if is_user_subscriber(&ctx, &msg.sender.login, &msg.badges).await {
+                    queue_manager::UserType::Subscriber
+                } else {
+                    queue_manager::UserType::Default
+                };
                 let result = ctx
                     .queue_manager
                     .lock()
                     .unwrap()
-                    .join(&msg.sender.login, queue_manager::UserType::Default);
+                    .join(&msg.sender.login, user_type);
 
                 let message: &str;
                 match result {
@@ -241,7 +279,7 @@ impl TwitchCommand {
                 ctx.twitch_irc_client
                     .say(
                         msg.channel_login,
-                        format!("@{} ({:?}): {}", &msg.sender.login, &msg.badges, message),
+                        format!("@{}: {}", &msg.sender.login, message),
                     )
                     .await
                     .unwrap();
@@ -295,16 +333,15 @@ impl TwitchCommand {
                     .unwrap();
             }
             TwitchCommand::Next => {
-                // TODO check if &msg.sender.login has enough powers.
+                if &msg.sender.login != &ctx.ferris_bot_config.twitch.channel_name {
+                    return;
+                }
                 let result = ctx.queue_manager.lock().unwrap().next();
 
-                let message: String;
-                match result {
-                    Some(next_user) => {
-                        message = format!("@{} is the next user to play!", next_user)
-                    }
-                    None => message = "There are no users in the queue".to_owned(),
-                }
+                let message = match result {
+                    Some(next_user) => format!("@{} is the next user to play!", next_user),
+                    None => "There are no users in the queue".to_owned(),
+                };
 
                 ctx.twitch_irc_client
                     .say(

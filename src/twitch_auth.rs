@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use log::{debug, error, trace};
+use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use tiny_http::{Response, Server, StatusCode};
 use url::Url;
@@ -123,6 +123,7 @@ impl TwitchAuthHook {
 // Tests.
 #[cfg(test)]
 mod tests {
+    use log::trace;
     use reqwest::StatusCode;
 
     use super::*;

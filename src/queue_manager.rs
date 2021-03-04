@@ -1,9 +1,13 @@
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::fs;
 
+#[derive(Debug, Deserialize, Serialize)]
 pub struct QueueManager {
     queue_users: VecDeque<String>,
     queue_subscribers: VecDeque<String>,
     capacity: usize,
+    storage_file_path: String,
 }
 
 pub enum UserType {
@@ -21,12 +25,24 @@ pub enum QueueManagerLeaveError {
 }
 
 impl QueueManager {
-    pub fn new(capacity: usize) -> QueueManager {
-        QueueManager {
-            queue_users: VecDeque::new(),
-            queue_subscribers: VecDeque::new(),
-            capacity,
+    pub fn new(capacity: usize, storage_file_path: &str) -> QueueManager {
+        // TODO sanity check if storage_file_path is empty string
+
+        let queue_manager = fs::read_to_string(storage_file_path);
+        if queue_manager.is_err() {
+            return QueueManager {
+                queue_users: VecDeque::new(),
+                queue_subscribers: VecDeque::new(),
+                capacity,
+                storage_file_path: String::from(storage_file_path),
+            };
         }
+        serde_json::from_str::<QueueManager>(&queue_manager.unwrap()).unwrap()
+    }
+
+    fn update_storage(&self) {
+        let content = serde_json::to_string(self).unwrap();
+        fs::write(self.storage_file_path.to_owned(), content).expect("Unable to write file");
     }
 
     pub fn join(&mut self, name: &str, user_type: UserType) -> Result<(), QueueManagerJoinError> {
@@ -42,6 +58,7 @@ impl QueueManager {
             UserType::Default => self.queue_users.push_back(String::from(name)),
             UserType::Subscriber => self.queue_subscribers.push_back(String::from(name)),
         }
+        self.update_storage();
         Ok(())
     }
 
@@ -51,11 +68,13 @@ impl QueueManager {
     }
 
     pub fn next(&mut self) -> Option<String> {
-        if self.queue_subscribers.len() > 0 {
+        let res = if self.queue_subscribers.len() > 0 {
             self.queue_subscribers.pop_front()
         } else {
             self.queue_users.pop_front()
-        }
+        };
+        self.update_storage();
+        res
     }
 
     fn remove_from_queue(
@@ -94,7 +113,8 @@ mod tests {
     fn test_queue() {
         let mut users = vec![];
         let mut subscribers = vec![];
-        let mut queue_man = QueueManager::new(6);
+        fs::remove_file("storage1.json").unwrap();
+        let mut queue_man = QueueManager::new(6, "storage1.json");
         for _ in 0..3 {
             let random_user = gen_random_user();
             assert!(queue_man.join(&random_user, UserType::Default).is_ok());
@@ -124,22 +144,29 @@ mod tests {
         assert!(matches!(result, Err(QueueManagerJoinError::QueueFull)));
 
         // first in queue should be the subscribers.
+        dbg!(&queue_man);
         for i in 0..3 {
             assert_eq!(
                 queue_man.next(),
                 Some(subscribers.get(i).unwrap().to_owned())
             );
+            dbg!(&queue_man);
         }
         // next we should see the other users.
         for i in 0..3 {
+            let mut queue_man = QueueManager::new(6, "storage1.json");
             assert_eq!(queue_man.next(), Some(users.get(i).unwrap().to_owned()));
+            dbg!(&queue_man);
         }
+        let mut queue_man = QueueManager::new(6, "storage1.json");
         assert_eq!(queue_man.next(), None);
+        dbg!(&queue_man);
     }
 
     #[test]
     fn test_queue_leave() {
-        let mut queue_man = QueueManager::new(3);
+        fs::remove_file("storage2.json").unwrap();
+        let mut queue_man = QueueManager::new(3, "storage2.json");
 
         let random_user_1 = gen_random_user();
         let random_user_2 = gen_random_user();
@@ -150,6 +177,8 @@ mod tests {
         assert!(queue_man.queue().any(|x| x == &random_user_1));
         assert!(queue_man.queue().any(|x| x == &random_user_2));
         assert!(queue_man.queue().any(|x| x == &random_user_3));
+
+        let mut queue_man = QueueManager::new(3, "storage2.json");
 
         assert!(queue_man.leave(&random_user_2).is_ok());
         assert!(queue_man.queue().any(|x| x == &random_user_1));
