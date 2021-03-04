@@ -1,6 +1,6 @@
 [package]
-name = "twitch_queue_bot"
-version = "0.1.0"
+name = "ferris_bot"
+version = "0.0.1-alpha"
 authors = ["stuckoverflow2021"]
 edition = "2018"
 
