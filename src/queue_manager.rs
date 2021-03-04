@@ -26,8 +26,9 @@ pub enum QueueManagerLeaveError {
 
 impl QueueManager {
     pub fn new(capacity: usize, storage_file_path: &str) -> QueueManager {
-        // TODO sanity check if storage_file_path is empty string
-
+        if storage_file_path.is_empty() {
+            panic!("Must specify a file to store the queue data.");
+        }
         let queue_manager = fs::read_to_string(storage_file_path);
         if queue_manager.is_err() {
             return QueueManager {
@@ -35,16 +36,16 @@ impl QueueManager {
                 queue_subscribers: VecDeque::new(),
                 capacity,
                 storage_file_path: String::from(storage_file_path),
-            };
+            }; 
         }
         serde_json::from_str::<QueueManager>(&queue_manager.unwrap()).unwrap()
     }
 
     fn update_storage(&self) {
         let content = serde_json::to_string(self).unwrap();
-        fs::write(self.storage_file_path.to_owned(), content).expect("Unable to write file");
+        fs::write(self.storage_file_path.to_owned(), content).expect("Unable to write file"); 
     }
-
+    
     pub fn join(&mut self, name: &str, user_type: UserType) -> Result<(), QueueManagerJoinError> {
         if self.queue_subscribers.iter().any(|x| x == name)
             || self.queue_users.iter().any(|x| x == name)
@@ -68,11 +69,7 @@ impl QueueManager {
     }
 
     pub fn next(&mut self) -> Option<String> {
-        let res = if self.queue_subscribers.len() > 0 {
-            self.queue_subscribers.pop_front()
-        } else {
-            self.queue_users.pop_front()
-        };
+        let res = if self.queue_subscribers.len() > 0 { self.queue_subscribers.pop_front() } else { self.queue_users.pop_front() };
         self.update_storage();
         res
     }
@@ -177,7 +174,7 @@ mod tests {
         assert!(queue_man.queue().any(|x| x == &random_user_1));
         assert!(queue_man.queue().any(|x| x == &random_user_2));
         assert!(queue_man.queue().any(|x| x == &random_user_3));
-
+        
         let mut queue_man = QueueManager::new(3, "storage2.json");
 
         assert!(queue_man.leave(&random_user_2).is_ok());
