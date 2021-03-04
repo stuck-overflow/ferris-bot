@@ -4,3 +4,7 @@ channel_name = 'stuck_overflow'
 client_id = 'YOURCLIENTID'
 secret = 'YOURSECRET'
 token_filepath = '.twitchauthtoken.json'
+
+[queue_manager]
+capacity = 10
+queue_storage = 'queue_storage.json'
