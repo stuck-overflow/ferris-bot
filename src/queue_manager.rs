@@ -159,23 +159,19 @@ mod tests {
         assert!(matches!(result, Err(QueueManagerJoinError::QueueFull)));
 
         // first in queue should be the subscribers.
-        dbg!(&queue_man);
         for i in 0..3 {
             assert_eq!(
                 queue_man.next(),
                 Some(subscribers.get(i).unwrap().to_owned())
             );
-            dbg!(&queue_man);
         }
         // next we should see the other users.
         for i in 0..3 {
             let mut queue_man = QueueManager::new(capacity, &file_name);
             assert_eq!(queue_man.next(), Some(users.get(i).unwrap().to_owned()));
-            dbg!(&queue_man);
         }
         let mut queue_man = QueueManager::new(capacity, &file_name);
         assert_eq!(queue_man.next(), None);
-        dbg!(&queue_man);
     }
 
     #[test]
@@ -183,9 +179,7 @@ mod tests {
         let file_name = Temp::new_file().unwrap();
         let file_name = file_name.to_str().unwrap();
         let capacity = 4;
-        dbg!(file_name);
         let mut queue_man = QueueManager::new(capacity, &file_name);
-        dbg!(&queue_man);
 
         let random_user_1 = gen_random_user();
         let random_user_2 = gen_random_user();
@@ -201,7 +195,6 @@ mod tests {
         assert!(queue_man.queue().any(|x| x == &random_user_4));
 
         let mut queue_man = QueueManager::new(capacity, &file_name);
-        dbg!(&queue_man);
 
         assert!(queue_man.leave(&random_user_2).is_ok());
         assert!(queue_man.queue().any(|x| x == &random_user_1));
