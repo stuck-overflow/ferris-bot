@@ -223,6 +223,7 @@ enum TwitchCommand {
     Queue,
     Leave,
     Next,
+    Kick,
     ReplyWith(&'static str),
     Broadcast(&'static str),
 }
@@ -328,6 +329,34 @@ impl TwitchCommand {
                     .await
                     .unwrap();
             }
+            TwitchCommand::Kick => {
+                if &msg.sender.login != &ctx.ferris_bot_config.twitch.channel_name {
+                    return;
+                }
+
+                let first_word = &msg.message_text[5..].trim().split(" ").next();
+                let message = match first_word {
+                    None => "Please specify which user to kick".to_owned(),
+                    Some(word) => {
+                        let user = word.trim_start_matches("@").to_lowercase();
+                        let result = ctx.queue_manager.lock().unwrap().kick(&user);
+                        match result {
+                            Err(QueueManagerLeaveError::UserNotInQueue) => {
+                                format!("User {} is not in queue", user)
+                            }
+                            Ok(()) => format!("User {} successfully left the Queue", user),
+                        }
+                    }
+                };
+
+                ctx.twitch_irc_client
+                    .say(
+                        msg.channel_login,
+                        format!("@{}: {}", &msg.sender.login, message),
+                    )
+                    .await
+                    .unwrap();
+            }
         }
     }
 
@@ -344,6 +373,7 @@ impl TwitchCommand {
             ("!leave", _) => Some(TwitchCommand::Leave),
             ("!queue", _) => Some(TwitchCommand::Queue),
             ("!next", _) => Some(TwitchCommand::Next),
+            ("!kick", _) => Some(TwitchCommand::Kick),
             ("!pythonsucks", _) => Some(TwitchCommand::ReplyWith("This must be Lord")),
             ("!stonk", _) => Some(TwitchCommand::ReplyWith("yOu shOULd Buy AMC sTOnKS")),
             ("!c++", _) => Some(TwitchCommand::ReplyWith("segmentation fault")),

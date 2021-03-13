@@ -36,16 +36,16 @@ impl QueueManager {
                 queue_subscribers: VecDeque::new(),
                 capacity,
                 storage_file_path: String::from(storage_file_path),
-            }; 
+            };
         }
         serde_json::from_str::<QueueManager>(&queue_manager.unwrap()).unwrap()
     }
 
     fn update_storage(&self) {
         let content = serde_json::to_string(self).unwrap();
-        fs::write(self.storage_file_path.to_owned(), content).expect("Unable to write file"); 
+        fs::write(self.storage_file_path.to_owned(), content).expect("Unable to write file");
     }
-    
+
     pub fn join(&mut self, name: &str, user_type: UserType) -> Result<(), QueueManagerJoinError> {
         if self.queue_subscribers.iter().any(|x| x == name)
             || self.queue_users.iter().any(|x| x == name)
@@ -69,7 +69,11 @@ impl QueueManager {
     }
 
     pub fn next(&mut self) -> Option<String> {
-        let res = if self.queue_subscribers.len() > 0 { self.queue_subscribers.pop_front() } else { self.queue_users.pop_front() };
+        let res = if self.queue_subscribers.len() > 0 {
+            self.queue_subscribers.pop_front()
+        } else {
+            self.queue_users.pop_front()
+        };
         self.update_storage();
         res
     }
@@ -90,6 +94,10 @@ impl QueueManager {
     pub fn leave(&mut self, name: &str) -> Result<(), QueueManagerLeaveError> {
         QueueManager::remove_from_queue(&mut self.queue_subscribers, name)
             .or_else(|_| QueueManager::remove_from_queue(&mut self.queue_users, name))
+    }
+
+    pub fn kick(&mut self, name: &str) -> Result<(), QueueManagerLeaveError> {
+        self.leave(name)
     }
 }
 
@@ -163,24 +171,29 @@ mod tests {
     #[test]
     fn test_queue_leave() {
         fs::remove_file("storage2.json").unwrap();
-        let mut queue_man = QueueManager::new(3, "storage2.json");
+        let capacity = 4;
+        let mut queue_man = QueueManager::new(capacity, "storage2.json");
 
         let random_user_1 = gen_random_user();
         let random_user_2 = gen_random_user();
         let random_user_3 = gen_random_user();
+        let random_user_4 = gen_random_user();
         assert!(queue_man.join(&random_user_1, UserType::Default).is_ok());
         assert!(queue_man.join(&random_user_2, UserType::Default).is_ok());
         assert!(queue_man.join(&random_user_3, UserType::Subscriber).is_ok());
+        assert!(queue_man.join(&random_user_4, UserType::Default).is_ok());
         assert!(queue_man.queue().any(|x| x == &random_user_1));
         assert!(queue_man.queue().any(|x| x == &random_user_2));
         assert!(queue_man.queue().any(|x| x == &random_user_3));
-        
-        let mut queue_man = QueueManager::new(3, "storage2.json");
+        assert!(queue_man.queue().any(|x| x == &random_user_4));
+
+        let mut queue_man = QueueManager::new(capacity, "storage2.json");
 
         assert!(queue_man.leave(&random_user_2).is_ok());
         assert!(queue_man.queue().any(|x| x == &random_user_1));
         assert!(!queue_man.queue().any(|x| x == &random_user_2));
         assert!(queue_man.queue().any(|x| x == &random_user_3));
+        assert!(queue_man.queue().any(|x| x == &random_user_4));
 
         assert!(matches!(
             queue_man.leave(&random_user_2),
@@ -191,9 +204,21 @@ mod tests {
         assert!(queue_man.queue().any(|x| x == &random_user_1));
         assert!(!queue_man.queue().any(|x| x == &random_user_2));
         assert!(!queue_man.queue().any(|x| x == &random_user_3));
+        assert!(queue_man.queue().any(|x| x == &random_user_4));
 
         assert!(matches!(
             queue_man.leave(&random_user_3),
+            Err(QueueManagerLeaveError::UserNotInQueue)
+        ));
+
+        assert!(queue_man.kick(&random_user_4).is_ok());
+        assert!(queue_man.queue().any(|x| x == &random_user_1));
+        assert!(!queue_man.queue().any(|x| x == &random_user_2));
+        assert!(!queue_man.queue().any(|x| x == &random_user_3));
+        assert!(!queue_man.queue().any(|x| x == &random_user_4));
+
+        assert!(matches!(
+            queue_man.leave(&random_user_4),
             Err(QueueManagerLeaveError::UserNotInQueue)
         ));
     }
