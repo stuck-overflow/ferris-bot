@@ -25,4 +25,5 @@ twitch_oauth2 = "0.5.0-alpha"
 url = "2.2.0"
 
 [dev-dependencies]
+mktemp = "0.4"
 rand = "0.8.3"

@@ -31,14 +31,21 @@ impl QueueManager {
         }
         let queue_manager = fs::read_to_string(storage_file_path);
         if queue_manager.is_err() {
-            return QueueManager {
-                queue_users: VecDeque::new(),
-                queue_subscribers: VecDeque::new(),
-                capacity,
-                storage_file_path: String::from(storage_file_path),
-            };
+            return QueueManager::new_empty(capacity, storage_file_path);
         }
-        serde_json::from_str::<QueueManager>(&queue_manager.unwrap()).unwrap()
+        match serde_json::from_str::<QueueManager>(&queue_manager.unwrap()) {
+            Ok(queue_man) => queue_man,
+            Err(_) => QueueManager::new_empty(capacity, storage_file_path),
+        }
+    }
+
+    fn new_empty(capacity: usize, storage_file_path: &str) -> QueueManager {
+        QueueManager {
+            queue_users: VecDeque::new(),
+            queue_subscribers: VecDeque::new(),
+            capacity,
+            storage_file_path: String::from(storage_file_path),
+        }
     }
 
     fn update_storage(&self) {
@@ -104,6 +111,7 @@ impl QueueManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mktemp::Temp;
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
     fn gen_random_user() -> String {
         let rng = thread_rng();
@@ -116,10 +124,12 @@ mod tests {
 
     #[test]
     fn test_queue() {
+        let file_name = Temp::new_file().unwrap();
+        let file_name = file_name.to_str().unwrap();
+        let capacity = 6;
         let mut users = vec![];
         let mut subscribers = vec![];
-        fs::remove_file("storage1.json").unwrap();
-        let mut queue_man = QueueManager::new(6, "storage1.json");
+        let mut queue_man = QueueManager::new(capacity, &file_name);
         for _ in 0..3 {
             let random_user = gen_random_user();
             assert!(queue_man.join(&random_user, UserType::Default).is_ok());
@@ -149,30 +159,27 @@ mod tests {
         assert!(matches!(result, Err(QueueManagerJoinError::QueueFull)));
 
         // first in queue should be the subscribers.
-        dbg!(&queue_man);
         for i in 0..3 {
             assert_eq!(
                 queue_man.next(),
                 Some(subscribers.get(i).unwrap().to_owned())
             );
-            dbg!(&queue_man);
         }
         // next we should see the other users.
         for i in 0..3 {
-            let mut queue_man = QueueManager::new(6, "storage1.json");
+            let mut queue_man = QueueManager::new(capacity, &file_name);
             assert_eq!(queue_man.next(), Some(users.get(i).unwrap().to_owned()));
-            dbg!(&queue_man);
         }
-        let mut queue_man = QueueManager::new(6, "storage1.json");
+        let mut queue_man = QueueManager::new(capacity, &file_name);
         assert_eq!(queue_man.next(), None);
-        dbg!(&queue_man);
     }
 
     #[test]
     fn test_queue_leave() {
-        fs::remove_file("storage2.json").unwrap();
+        let file_name = Temp::new_file().unwrap();
+        let file_name = file_name.to_str().unwrap();
         let capacity = 4;
-        let mut queue_man = QueueManager::new(capacity, "storage2.json");
+        let mut queue_man = QueueManager::new(capacity, &file_name);
 
         let random_user_1 = gen_random_user();
         let random_user_2 = gen_random_user();
@@ -187,7 +194,7 @@ mod tests {
         assert!(queue_man.queue().any(|x| x == &random_user_3));
         assert!(queue_man.queue().any(|x| x == &random_user_4));
 
-        let mut queue_man = QueueManager::new(capacity, "storage2.json");
+        let mut queue_man = QueueManager::new(capacity, &file_name);
 
         assert!(queue_man.leave(&random_user_2).is_ok());
         assert!(queue_man.queue().any(|x| x == &random_user_1));
