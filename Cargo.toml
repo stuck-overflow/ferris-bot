@@ -10,18 +10,18 @@ chrono = "0.4"
 futures = "0.3"
 itertools = "0.10.0"
 log = "0.4.14"
-oauth2 = "3.0.0"
-reqwest = "0.11"
+oauth2 = "4.0.0-alpha"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 simple_logger = "1.11.0"
 structopt = "0.3.13"
+surf = "2.2"
 tiny_http = "0.6"
 tokio = { version = "1", features = ["full"] }
 toml = "0.4.2"
-twitch_api2 = { version = "0.5.0-alpha", features = ["allow_unknown_fields", "client", "helix", "reqwest_client"] }
+twitch_api2 = { version = "0.5.0-alpha", features = ["client", "helix", "surf_client"], path="twitch_api2/" }
 twitch-irc = { version = "2.2.0", features = ["refreshing-token"] }
-twitch_oauth2 = "0.5.0-alpha"
+twitch_oauth2 = { version = "0.5.0-alpha", features = ["surf_client"], path = "twitch_api2/twitch_oauth2/" }
 url = "2.2.0"
 
 [dev-dependencies]

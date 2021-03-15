@@ -1,8 +1,7 @@
 mod queue_manager;
+mod token_storage;
 mod twitch_auth;
 
-use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use itertools::join;
 use log::{debug, trace, LevelFilter};
 use queue_manager::QueueManager;
@@ -10,51 +9,17 @@ use queue_manager::QueueManagerJoinError;
 use queue_manager::QueueManagerLeaveError;
 use serde::Deserialize;
 use simple_logger::SimpleLogger;
-use std::fs::File;
 use std::sync::Mutex;
 use std::{fs, str};
 use structopt::StructOpt;
+use token_storage::CustomTokenStorage;
 use twitch_api2::helix::subscriptions::GetBroadcasterSubscriptionsRequest;
 use twitch_api2::helix::users::GetUsersRequest;
-use twitch_api2::twitch_oauth2;
-use twitch_api2::twitch_oauth2::UserToken;
 use twitch_api2::TwitchClient;
-use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken};
+use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage};
 use twitch_irc::message::Badge;
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::{ClientConfig, TCPTransport, TwitchIRCClient};
-
-#[derive(Debug)]
-struct CustomTokenStorage {
-    token_checkpoint_file: String,
-}
-
-#[async_trait]
-impl TokenStorage for CustomTokenStorage {
-    type LoadError = std::io::Error; // or some other error
-    type UpdateError = std::io::Error;
-
-    async fn load_token(&mut self) -> Result<UserAccessToken, Self::LoadError> {
-        debug!("load_token called");
-        let token = fs::read_to_string(&self.token_checkpoint_file)?;
-        let token = serde_json::from_str::<UserAccessToken>(&(token)).map_err(|_| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Failed to deserialize token",
-            )
-        })?;
-        Ok(token)
-    }
-
-    async fn update_token(&mut self, token: &UserAccessToken) -> Result<(), Self::UpdateError> {
-        debug!("update_token called");
-        let serialized = serde_json::to_string(&token).unwrap();
-        let _ = File::create(&self.token_checkpoint_file);
-        fs::write(&self.token_checkpoint_file, serialized)
-            .expect("Twitch IRC: Unable to write token to checkpoint file");
-        Ok(())
-    }
-}
 
 #[derive(Clone, Deserialize)]
 struct FerrisBotConfig {
@@ -100,32 +65,28 @@ pub async fn main() {
     let config = fs::read_to_string(args.config_file).unwrap();
     let config: FerrisBotConfig = toml::from_str(&config).unwrap();
 
-    let mut storage = CustomTokenStorage {
+    let mut token_storage = CustomTokenStorage {
         token_checkpoint_file: config.twitch.token_filepath.clone(),
     };
 
     // If we have some errors while loading the stored token, e.g. if we never
     // stored one before or it's unparsable, go through the authentication
     // workflow.
-    if let Err(_) = storage.load_token().await {
-        let first_token = twitch_auth::auth_flow(&config.twitch.client_id, &config.twitch.secret);
-
-        let created_at = Utc::now();
-        let expires_at = created_at + Duration::seconds(first_token.expires_in);
-        let user_access_token = UserAccessToken {
-            access_token: first_token.access_token,
-            refresh_token: first_token.refresh_token,
-            created_at,
-            expires_at: Some(expires_at),
-        };
-        storage.update_token(&user_access_token).await.unwrap();
+    if let Err(_) = token_storage.load_token().await {
+        let user_token = twitch_auth::auth_flow(&config.twitch.client_id, &config.twitch.secret);
+        token_storage
+            .write_twitch_oauth2_user_token(
+                &user_token,
+                Some(oauth2::ClientSecret::new(config.twitch.secret.clone())),
+            )
+            .unwrap();
     }
 
     let irc_config = ClientConfig::new_simple(RefreshingLoginCredentials::new(
         config.twitch.login_name.clone(),
         config.twitch.client_id.clone(),
         config.twitch.secret.clone(),
-        storage,
+        token_storage.clone(),
     ));
 
     let (mut incoming_messages, twitch_irc_client) =
@@ -138,6 +99,7 @@ pub async fn main() {
             &config.queue_manager.queue_storage,
         )),
         twitch_irc_client,
+        token_storage,
     };
 
     // join a channel
@@ -170,24 +132,10 @@ async fn is_user_subscriber(ctx: &Context, user: &str, badges: &Vec<Badge>) -> b
             return true;
         }
     }
-    let client = reqwest::Client::new();
+    let client = surf::Client::new();
     let twitch_api_client = TwitchClient::with_client(client);
-    let token = fs::read_to_string(&ctx.ferris_bot_config.twitch.token_filepath).unwrap();
-    let token = serde_json::from_str::<UserAccessToken>(&(token)).unwrap();
-    let token = UserToken::from_existing_unchecked(
-        twitch_oauth2::AccessToken::new(token.access_token),
-        Some(twitch_oauth2::RefreshToken::new(token.refresh_token)),
-        twitch_oauth2::ClientId::new(ctx.ferris_bot_config.twitch.client_id.clone()),
-        Some(twitch_oauth2::ClientSecret::new(
-            ctx.ferris_bot_config.twitch.secret.clone(),
-        )),
-        Some(ctx.ferris_bot_config.twitch.login_name.clone()),
-        Some(vec![
-            twitch_oauth2::Scope::ChatRead,
-            twitch_oauth2::Scope::ChatEdit,
-            twitch_oauth2::Scope::ChannelReadSubscriptions,
-        ]),
-    );
+    let token = &ctx.token_storage;
+    let token = token.load_twitch_oauth2_user_token().unwrap();
     debug!("{:?}", token);
 
     let req = GetUsersRequest::builder()
@@ -215,6 +163,7 @@ struct Context {
     twitch_irc_client:
         TwitchIRCClient<TCPTransport, RefreshingLoginCredentials<CustomTokenStorage>>,
     queue_manager: Mutex<QueueManager>,
+    token_storage: CustomTokenStorage,
 }
 
 #[derive(Debug, PartialEq)]
@@ -392,6 +341,7 @@ impl TwitchCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
 
     #[test]
     fn parsing_commands() {
