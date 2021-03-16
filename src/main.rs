@@ -1,6 +1,5 @@
 mod queue_manager;
 mod token_storage;
-mod twitch_auth;
 
 use itertools::join;
 use log::{debug, trace, LevelFilter};
@@ -20,6 +19,7 @@ use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage};
 use twitch_irc::message::Badge;
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::{ClientConfig, TCPTransport, TwitchIRCClient};
+use twitch_oauth2::Scope;
 
 #[derive(Clone, Deserialize)]
 struct FerrisBotConfig {
@@ -73,7 +73,15 @@ pub async fn main() {
     // stored one before or it's unparsable, go through the authentication
     // workflow.
     if let Err(_) = token_storage.load_token().await {
-        let user_token = twitch_auth::auth_flow(&config.twitch.client_id, &config.twitch.secret);
+        let user_token = twitch_oauth2_auth_flow::auth_flow(
+            &config.twitch.client_id,
+            &config.twitch.secret,
+            Some(vec![
+                Scope::ChannelReadSubscriptions,
+                Scope::ChatEdit,
+                Scope::ChatRead,
+            ]),
+        );
         token_storage
             .write_twitch_oauth2_user_token(
                 &user_token,

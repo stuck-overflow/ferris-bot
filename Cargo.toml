@@ -22,6 +22,7 @@ toml = "0.4.2"
 twitch_api2 = { version = "0.5.0-alpha", features = ["client", "helix", "surf_client"], path="twitch_api2/" }
 twitch-irc = { version = "2.2.0", features = ["refreshing-token"] }
 twitch_oauth2 = { version = "0.5.0-alpha", features = ["surf_client"], path = "twitch_api2/twitch_oauth2/" }
+twitch_oauth2_auth_flow = { version = "0.0.1-alpha", path = "twitch_oauth2_auth_flow/" }
 url = "2.2.0"
 
 [dev-dependencies]
