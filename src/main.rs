@@ -14,12 +14,12 @@ use structopt::StructOpt;
 use token_storage::CustomTokenStorage;
 use twitch_api2::helix::subscriptions::GetBroadcasterSubscriptionsRequest;
 use twitch_api2::helix::users::GetUsersRequest;
+use twitch_api2::twitch_oauth2::Scope;
 use twitch_api2::TwitchClient;
 use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage};
 use twitch_irc::message::Badge;
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::{ClientConfig, TCPTransport, TwitchIRCClient};
-use twitch_oauth2::Scope;
 
 #[derive(Clone, Deserialize)]
 struct FerrisBotConfig {

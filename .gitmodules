@@ -1,6 +1,0 @@
-[submodule "twitch_api2"]
-	path = twitch_api2
-	url = https://github.com/Emilgardis/twitch_api2
-[submodule "twitch_oauth2_auth_flow"]
-	path = twitch_oauth2_auth_flow
-	url = https://github.com/stuck-overflow/twitch_oauth2_auth_flow

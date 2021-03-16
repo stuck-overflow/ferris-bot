@@ -5,8 +5,9 @@ use oauth2::ClientSecret;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::{fs, str};
+use twitch_api2::twitch_oauth2;
+use twitch_api2::twitch_oauth2::TwitchToken;
 use twitch_irc::login::TokenStorage;
-use twitch_oauth2::TwitchToken;
 
 #[derive(Clone, Debug)]
 pub struct CustomTokenStorage {
@@ -23,6 +24,8 @@ pub struct StoredUserToken {
     client_secret: Option<oauth2::ClientSecret>,
     /// Username of user associated with this token
     login: String,
+    /// User ID of the user associated with this token
+    user_id: String,
     /// The refresh token used to extend the life of this user token
     refresh_token: Option<oauth2::RefreshToken>,
     /// Expiration time
@@ -41,6 +44,7 @@ impl StoredUserToken {
             client_id: user_token.client_id().clone(),
             client_secret,
             login: user_token.login.clone(),
+            user_id: user_token.user_id.clone(),
             refresh_token: user_token.refresh_token.clone(),
             expires_at: Some(expires_at),
             scopes: Some(user_token.scopes().to_vec()),
@@ -58,6 +62,7 @@ impl StoredUserToken {
             self.client_id.clone(),
             self.client_secret.clone(),
             self.login.clone(),
+            self.user_id.clone(),
             self.scopes.clone(),
             expires_in,
         )
