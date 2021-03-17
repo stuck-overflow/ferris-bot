@@ -19,9 +19,9 @@ surf = "2.2"
 tiny_http = "0.6"
 tokio = { version = "1", features = ["full"] }
 toml = "0.4.2"
-twitch_api2 = { version = "0.5.0-alpha", features = ["client", "helix", "surf_client", "twitch_oauth2"], git = "https://github.com/Emilgardis/twitch_api2/"  }
+twitch_api2 = { eatures = ["client", "helix", "surf_client", "twitch_oauth2"], git = "https://github.com/Emilgardis/twitch_api2/", branch = "master"  }
 twitch-irc = { version = "2.2.0", features = ["refreshing-token"] }
-twitch_oauth2_auth_flow = { version = "0.0.1-alpha", git = "https://github.com/stuck-overflow/twitch_oauth2_auth_flow", branch = "main" }
+twitch_oauth2_auth_flow = { git = "https://github.com/stuck-overflow/twitch_oauth2_auth_flow", branch = "main" }
 url = "2.2.0"
 
 [dev-dependencies]
