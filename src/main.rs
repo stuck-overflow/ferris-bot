@@ -3,6 +3,7 @@ mod token_storage;
 
 use itertools::join;
 use log::{debug, trace, LevelFilter};
+use obws::{requests::SceneItemRender, Client};
 use queue_manager::QueueManager;
 use queue_manager::QueueManagerJoinError;
 use queue_manager::QueueManagerLeaveError;
@@ -181,6 +182,7 @@ enum TwitchCommand {
     Leave,
     Next,
     Kick,
+    Switch,
     ReplyWith(&'static str),
     Broadcast(&'static str),
 }
@@ -286,11 +288,64 @@ impl TwitchCommand {
                     .await
                     .unwrap();
             }
+            TwitchCommand::Switch => {
+                // Connect to the OBS instance through obs-websocket.
+                let client = Client::connect("localhost", 4444).await.unwrap();
+
+                // Optionally log-in (if enabled in obs-websocket) to allow other APIs and receive events.
+                client.login(Some("stucker")).await.unwrap();
+
+                // Get a list of available scenes and print them out.
+                let scene = client.scenes().get_current_scene().await.unwrap();
+
+                let ed = scene.sources.iter().find(|item| item.name == "Ed_Popup");
+                if let None = ed {
+                    return;
+                }
+                let ed = ed.unwrap();
+                let next_render_state = !ed.render;
+                let scene_item_render = SceneItemRender {
+                    scene_name: None,
+                    source: "Ed_Popup",
+                    item: None,
+                    render: next_render_state,
+                };
+                if let Err(_) = client
+                    .scene_items()
+                    .set_scene_item_render(scene_item_render)
+                    .await
+                {
+                    return;
+                }
+                let scene_item_render = SceneItemRender {
+                    scene_name: None,
+                    source: "Dario_Screen",
+                    item: None,
+                    render: !next_render_state,
+                };
+                if let Err(_) = client
+                    .scene_items()
+                    .set_scene_item_render(scene_item_render)
+                    .await
+                {
+                    return;
+                }
+                ctx.twitch_irc_client
+                    .say(
+                        msg.channel_login,
+                        format!(
+                            "Screen switched to {}",
+                            if next_render_state { "Fisken" } else { "Satu" }
+                        ),
+                    )
+                    .await
+                    .unwrap();
+            }
+
             TwitchCommand::Kick => {
                 if &msg.sender.login != &ctx.ferris_bot_config.twitch.channel_name {
                     return;
                 }
-
                 let first_word = &msg.message_text[5..].trim().split(" ").next();
                 let message = match first_word {
                     None => "Please specify which user to kick".to_owned(),
@@ -341,6 +396,7 @@ impl TwitchCommand {
             ("!zoya", _) => Some(TwitchCommand::Broadcast(include_str!("../assets/zoya.txt"))),
             ("!discord", _) => Some(TwitchCommand::Broadcast("https://discord.gg/UyrsFX7N")),
             ("!nothing", _) => Some(TwitchCommand::ReplyWith("this commands does nothing!")),
+            ("!switchscreen", _) => Some(TwitchCommand::Switch),
             _ => None,
         }
     }
