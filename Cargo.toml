@@ -11,6 +11,7 @@ futures = "0.3"
 itertools = "0.10.0"
 log = "0.4.14"
 oauth2 = "4.0.0-alpha"
+rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 simple_logger = "1.11.0"
@@ -25,5 +26,5 @@ twitch_oauth2_auth_flow = { git = "https://github.com/stuck-overflow/twitch_oaut
 url = "2.2.0"
 
 [dev-dependencies]
+assert_matches = "1.5"
 mktemp = "0.4"
-rand = "0.8.3"
