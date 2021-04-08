@@ -33,6 +33,7 @@ use word_stonks::{GuessResult, WordStonksGame};
 #[derive(Clone, Deserialize)]
 struct FerrisBotConfig {
     twitch: TwitchConfig,
+    giphy: Option<GiphyConfig>,
     queue_manager: QueueManagerConfig,
 }
 
@@ -43,6 +44,11 @@ struct TwitchConfig {
     channel_name: String,
     client_id: String,
     secret: String,
+}
+
+#[derive(Clone, Deserialize)]
+struct GiphyConfig {
+    api_key: String,
 }
 
 #[derive(Clone, Deserialize)]
@@ -108,6 +114,8 @@ pub async fn main() {
 
     let (mut incoming_messages, twitch_irc_client) =
         TwitchIRCClient::<TCPTransport, _>::new(irc_config);
+    let obs_client = Client::connect("localhost", 4444).await.unwrap();
+    obs_client.login(Some("stucker")).await.unwrap();
 
     let mut context = Context {
         ferris_bot_config: config.clone(),
@@ -118,6 +126,7 @@ pub async fn main() {
         twitch_irc_client,
         token_storage,
         word_stonks_game: None,
+        obs_client,
     };
 
     // join a channel
@@ -183,6 +192,7 @@ struct Context {
     queue_manager: Mutex<QueueManager>,
     token_storage: CustomTokenStorage,
     word_stonks_game: Option<WordStonksGame>,
+    obs_client: Client,
 }
 
 #[derive(Debug, PartialEq)]
@@ -304,6 +314,12 @@ impl TwitchCommand {
             }
 
             TwitchCommand::Gif => {
+                let api_key = match &ctx.ferris_bot_config.giphy {
+                    None => {
+                        return;
+                    }
+                    Some(giphy_config) => &giphy_config.api_key,
+                };
                 let query = &msg.message_text[4..].trim();
                 if query.len() == 0 {
                     ctx.twitch_irc_client
@@ -319,7 +335,8 @@ impl TwitchCommand {
                         .unwrap();
                     return;
                 }
-                let giphy_client = Giphy::new("PDSuxBTQGbKcGVpLvNTN8ZGDfjYP6LcG");
+
+                let giphy_client = Giphy::new(api_key);
                 let gif = giphy_client.search_gifs(query, 5, "pg-13").compat().await;
                 if let Err(e) = gif {
                     println!("error {}", e);
@@ -338,14 +355,12 @@ impl TwitchCommand {
                 }
                 let gif = &gif[0].url;
                 // Connect to the OBS instance through obs-websocket.
-                let client = Client::connect("localhost", 4444).await.unwrap();
-
+                let obs_client = &ctx.obs_client;
                 // Optionally log-in (if enabled in obs-websocket) to allow other APIs and receive events.
-                client.login(Some("stucker")).await.unwrap();
 
                 // Get a list of available scenes and print them out.
                 //let scene = client.scenes().get_current_scene().await.unwrap();
-                let sources = client.sources();
+                let sources = obs_client.sources();
                 let gifitem = sources
                     .get_source_settings::<serde_json::Value>("GifBot", None)
                     .await;
@@ -372,7 +387,7 @@ impl TwitchCommand {
                 {
                     println!("Error while setting source settings: {}", e);
                 }
-                let scene = client.scenes().get_current_scene().await.unwrap();
+                let scene = obs_client.scenes().get_current_scene().await.unwrap();
 
                 let gif_bot = scene.sources.iter().find(|item| item.name == "GifBot");
                 if let None = gif_bot {
@@ -385,7 +400,7 @@ impl TwitchCommand {
                     item: None,
                     render: true,
                 };
-                if let Err(_) = client
+                if let Err(_) = obs_client
                     .scene_items()
                     .set_scene_item_render(scene_item_render)
                     .await
@@ -394,7 +409,7 @@ impl TwitchCommand {
                 }
                 tokio::time::sleep(Duration::from_secs(5)).await;
 
-                let sources = client.sources();
+                let sources = obs_client.sources();
                 let gifitem = sources
                     .get_source_settings::<serde_json::Value>("GifBot", None)
                     .await;
@@ -423,7 +438,7 @@ impl TwitchCommand {
                     item: None,
                     render: false,
                 };
-                if let Err(_) = client
+                if let Err(_) = obs_client
                     .scene_items()
                     .set_scene_item_render(scene_item_render)
                     .await
@@ -434,13 +449,13 @@ impl TwitchCommand {
 
             TwitchCommand::Switch => {
                 // Connect to the OBS instance through obs-websocket.
-                let client = Client::connect("localhost", 4444).await.unwrap();
+                let obs_client = &ctx.obs_client;
 
                 // Optionally log-in (if enabled in obs-websocket) to allow other APIs and receive events.
-                client.login(Some("stucker")).await.unwrap();
+                obs_client.login(Some("stucker")).await.unwrap();
 
                 // Get a list of available scenes and print them out.
-                let scene = client.scenes().get_current_scene().await.unwrap();
+                let scene = obs_client.scenes().get_current_scene().await.unwrap();
 
                 let next_scene = match scene.name.as_str() {
                     "_STUCK_Live" => "_STUCK_Live_Ed",
@@ -448,7 +463,7 @@ impl TwitchCommand {
                     _ => return,
                 };
 
-                let set_scene = client.scenes().set_current_scene(next_scene).await;
+                let set_scene = obs_client.scenes().set_current_scene(next_scene).await;
                 if let Err(e) = set_scene {
                     eprintln!("Error while changing scene: {}", e);
                     return;
@@ -473,6 +488,8 @@ impl TwitchCommand {
                 let query = &msg.message_text[6..].trim();
                 let directory = "/home/ed/obs/audio/";
                 let sound = match query.to_lowercase().as_str() {
+                    "thoosly" => "thoosly.mp3",
+                    "elcodigo" => "elcodigo.mp3",
                     "pizza" => "pizza.mp3",
                     "horn" => "horn.mp3",
                     "waa" => "waa.mp3",
@@ -485,7 +502,8 @@ impl TwitchCommand {
                                 format!(
                                     "@{}: {}",
                                     &msg.sender.login,
-                                    "Enter a sound to play - Pizza, Horn, Waa, Wine, Go".to_owned()
+                                    "Enter a sound to play - Pizza, Horn, Waa, Wine, Go, Thoosly, Elcodigo"
+                                        .to_owned()
                                 ),
                             )
                             .await
@@ -496,14 +514,13 @@ impl TwitchCommand {
 
                 let file_path = format!("{}{}", directory, sound);
                 // Connect to the OBS instance through obs-websocket.
-                let client = Client::connect("localhost", 4444).await.unwrap();
 
+                let obs_client = &ctx.obs_client;
                 // Optionally log-in (if enabled in obs-websocket) to allow other APIs and receive events.
-                client.login(Some("stucker")).await.unwrap();
 
                 // Get a list of available scenes and print them out.
                 //let scene = client.scenes().get_current_scene().await.unwrap();
-                let sources = client.sources();
+                let sources = obs_client.sources();
                 let audio_source = sources
                     .get_source_settings::<serde_json::Value>("Audio_Source", None)
                     .await;
@@ -523,9 +540,12 @@ impl TwitchCommand {
                 {
                     println!("Error while setting source settings: {}", e);
                 }
-                let scene = client.scenes().get_current_scene().await.unwrap();
+                let scene = obs_client.scenes().get_current_scene().await.unwrap();
 
-                let audio_source = scene.sources.iter().find(|item| item.name == "Audio_Source");
+                let audio_source = scene
+                    .sources
+                    .iter()
+                    .find(|item| item.name == "Audio_Source");
                 if let None = audio_source {
                     return;
                 }
@@ -549,7 +569,7 @@ impl TwitchCommand {
                     item: None,
                     render: true,
                 };
-                if let Err(_) = client
+                if let Err(_) = obs_client
                     .scene_items()
                     .set_scene_item_render(scene_item_render)
                     .await
@@ -613,7 +633,9 @@ impl TwitchCommand {
                                 &msg.sender.login)
                     }
                     Some(game) => {
-                        let first_word = &msg.message_text[10..].trim().split(" ").next();
+                        let command = &msg.message_text.trim().split(" ").next().unwrap();
+                        let first_word =
+                            &msg.message_text[command.len()..].trim().split(" ").next();
                         let message = match first_word {
                             None => "Please specify which word you want to guess".to_owned(),
                             Some(word) => match game.guess(word) {
@@ -680,6 +702,7 @@ impl TwitchCommand {
             ("!sound", _) => Some(TwitchCommand::Sound),
             ("!wordstonks", _) => Some(TwitchCommand::WordStonks),
             ("!wordguess", _) => Some(TwitchCommand::WordGuess),
+            ("!wg", _) => Some(TwitchCommand::WordGuess),
             _ => None,
         }
     }
