@@ -1,5 +1,6 @@
 mod queue_manager;
 mod token_storage;
+mod word_stonks;
 
 use giphy_api::Giphy;
 use itertools::join;
@@ -27,6 +28,7 @@ use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage};
 use twitch_irc::message::Badge;
 use twitch_irc::message::{PrivmsgMessage, ServerMessage};
 use twitch_irc::{ClientConfig, TCPTransport, TwitchIRCClient};
+use word_stonks::{GuessResult, WordStonksGame};
 
 #[derive(Clone, Deserialize)]
 struct FerrisBotConfig {
@@ -107,7 +109,7 @@ pub async fn main() {
     let (mut incoming_messages, twitch_irc_client) =
         TwitchIRCClient::<TCPTransport, _>::new(irc_config);
 
-    let context = Context {
+    let mut context = Context {
         ferris_bot_config: config.clone(),
         queue_manager: Mutex::new(QueueManager::new(
             config.queue_manager.capacity,
@@ -115,6 +117,7 @@ pub async fn main() {
         )),
         twitch_irc_client,
         token_storage,
+        word_stonks_game: None,
     };
 
     // join a channel
@@ -128,7 +131,7 @@ pub async fn main() {
             match message {
                 ServerMessage::Privmsg(msg) => {
                     if let Some(cmd) = TwitchCommand::parse_msg(&msg) {
-                        cmd.handle(msg, &context).await;
+                        cmd.handle(msg, &mut context).await;
                     }
                 }
                 _ => continue,
@@ -179,6 +182,7 @@ struct Context {
         TwitchIRCClient<TCPTransport, RefreshingLoginCredentials<CustomTokenStorage>>,
     queue_manager: Mutex<QueueManager>,
     token_storage: CustomTokenStorage,
+    word_stonks_game: Option<WordStonksGame>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -193,10 +197,12 @@ enum TwitchCommand {
     Sound,
     ReplyWith(&'static str),
     Broadcast(&'static str),
+    WordGuess,
+    WordStonks,
 }
 
 impl TwitchCommand {
-    async fn handle(self, msg: PrivmsgMessage, ctx: &Context) {
+    async fn handle(self, msg: PrivmsgMessage, ctx: &mut Context) {
         match self {
             TwitchCommand::Join => {
                 debug!("Join received");
@@ -578,6 +584,70 @@ impl TwitchCommand {
                     .await
                     .unwrap();
             }
+            TwitchCommand::WordStonks => {
+                let message = match &ctx.word_stonks_game {
+                    None => {
+                        let game = WordStonksGame::new(include_str!("../assets/words.txt"));
+                        let interval = game.current_word_interval();
+                        let message = format!(
+                            "@{} wants to play WordStonks! Guess the hidden word with !wordguess <your_guess> . The hidden word is between {} and {}",
+                            &msg.sender.login, interval.lower_bound, interval.upper_bound);
+                        ctx.word_stonks_game = Some(game);
+                        message
+                    }
+                    Some(game) => {
+                        let interval = game.current_word_interval();
+                        format!("@{} WordStonks game is in progress! Guess the hidden word with !wordguess <your_guess> . The current hidden word is between {} and {}",
+                                &msg.sender.login, interval.lower_bound, interval.upper_bound)
+                    }
+                };
+                ctx.twitch_irc_client
+                    .say(msg.channel_login, message)
+                    .await
+                    .unwrap();
+            }
+            TwitchCommand::WordGuess => {
+                let message = match &mut ctx.word_stonks_game {
+                    None => {
+                        format!("@{}: No WordStonks game currently active! Start a game by typing !wordstonks",
+                                &msg.sender.login)
+                    }
+                    Some(game) => {
+                        let first_word = &msg.message_text[10..].trim().split(" ").next();
+                        let message = match first_word {
+                            None => "Please specify which word you want to guess".to_owned(),
+                            Some(word) => match game.guess(word) {
+                                GuessResult::Correct => {
+                                    ctx.word_stonks_game = None;
+                                    format!("Congratulations! The correct word was \"{}\"", word)
+                                }
+                                GuessResult::Incorrect(interval) => {
+                                    format!(
+                                        "Wrong guess! The hidden word is between \"{}\" and \"{}\"",
+                                        interval.lower_bound, interval.upper_bound
+                                    )
+                                }
+                                GuessResult::InvalidWord => {
+                                    format!("The word \"{}\" is not in my vocabulary", word)
+                                }
+                                GuessResult::OutOfRange => {
+                                    let interval = game.current_word_interval();
+                                    format!(
+                                        "The word \"{}\" is not between \"{}\" and \"{}\"",
+                                        word, interval.lower_bound, interval.upper_bound
+                                    )
+                                }
+                                GuessResult::GameOver(_) => String::from("The game is over"),
+                            },
+                        };
+                        format!("@{}: {}", &msg.sender.login, message)
+                    }
+                };
+                ctx.twitch_irc_client
+                    .say(msg.channel_login, message)
+                    .await
+                    .unwrap();
+            }
         }
     }
 
@@ -608,10 +678,16 @@ impl TwitchCommand {
             ("!switchscreen", _) => Some(TwitchCommand::Switch),
             ("!gif", _) => Some(TwitchCommand::Gif),
             ("!sound", _) => Some(TwitchCommand::Sound),
+            ("!wordstonks", _) => Some(TwitchCommand::WordStonks),
+            ("!wordguess", _) => Some(TwitchCommand::WordGuess),
             _ => None,
         }
     }
 }
+
+#[cfg(test)]
+#[macro_use]
+extern crate assert_matches;
 
 #[cfg(test)]
 mod tests {

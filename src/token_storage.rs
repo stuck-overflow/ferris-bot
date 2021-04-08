@@ -73,10 +73,25 @@ impl StoredUserToken {
             Some(r) => r.secret().to_owned(),
             None => "".to_owned(),
         };
+        // By default the `created_at` field of the token should be set to
+        // Utc::now(), however if the expiration time `expires_at` is already in
+        // the past we force `created_at` and `expires_at` fields to be equal.
+        // This is because the twitch_irc library doesn't handle gracefully
+        // `created_at` being greater than `expires_at`.
+        let now = Utc::now();
+        let created_at = if let Some(exp) = self.expires_at {
+            if exp < now {
+                exp
+            } else {
+                now
+            }
+        } else {
+            now
+        };
         twitch_irc::login::UserAccessToken {
             access_token: self.access_token.secret().to_owned(),
             refresh_token,
-            created_at: Utc::now(),
+            created_at,
             expires_at: self.expires_at,
         }
     }
