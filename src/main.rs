@@ -1,18 +1,24 @@
 mod queue_manager;
 mod token_storage;
 
+use giphy_api::Giphy;
 use itertools::join;
 use log::{debug, trace, LevelFilter};
-use obws::{requests::SceneItemRender, Client};
+use obws::{
+    requests::{SceneItemRender, SourceSettings},
+    Client,
+};
 use queue_manager::QueueManager;
 use queue_manager::QueueManagerJoinError;
 use queue_manager::QueueManagerLeaveError;
 use serde::Deserialize;
+use serde_json::json;
 use simple_logger::SimpleLogger;
-use std::sync::Mutex;
 use std::{fs, str};
+use std::{sync::Mutex, time::Duration};
 use structopt::StructOpt;
 use token_storage::CustomTokenStorage;
+use tokio_compat_02::FutureExt;
 use twitch_api2::helix::subscriptions::GetBroadcasterSubscriptionsRequest;
 use twitch_api2::helix::users::GetUsersRequest;
 use twitch_api2::twitch_oauth2::Scope;
@@ -183,6 +189,8 @@ enum TwitchCommand {
     Next,
     Kick,
     Switch,
+    Gif,
+    Sound,
     ReplyWith(&'static str),
     Broadcast(&'static str),
 }
@@ -288,6 +296,136 @@ impl TwitchCommand {
                     .await
                     .unwrap();
             }
+
+            TwitchCommand::Gif => {
+                let query = &msg.message_text[4..].trim();
+                if query.len() == 0 {
+                    ctx.twitch_irc_client
+                        .say(
+                            msg.channel_login,
+                            format!(
+                                "@{}: {}",
+                                &msg.sender.login,
+                                "Enter a word to search for a gif".to_owned()
+                            ),
+                        )
+                        .await
+                        .unwrap();
+                    return;
+                }
+                let giphy_client = Giphy::new("PDSuxBTQGbKcGVpLvNTN8ZGDfjYP6LcG");
+                let gif = giphy_client.search_gifs(query, 5, "pg-13").compat().await;
+                if let Err(e) = gif {
+                    println!("error {}", e);
+                    return;
+                }
+                let gif = gif.unwrap();
+                if gif.len() == 0 {
+                    ctx.twitch_irc_client
+                        .say(
+                            msg.channel_login,
+                            format!("@{}: No results for query: {}", &msg.sender.login, query),
+                        )
+                        .await
+                        .unwrap();
+                    return;
+                }
+                let gif = &gif[0].url;
+                // Connect to the OBS instance through obs-websocket.
+                let client = Client::connect("localhost", 4444).await.unwrap();
+
+                // Optionally log-in (if enabled in obs-websocket) to allow other APIs and receive events.
+                client.login(Some("stucker")).await.unwrap();
+
+                // Get a list of available scenes and print them out.
+                //let scene = client.scenes().get_current_scene().await.unwrap();
+                let sources = client.sources();
+                let gifitem = sources
+                    .get_source_settings::<serde_json::Value>("GifBot", None)
+                    .await;
+                if let Err(e) = gifitem {
+                    println!("Can't find GifBot source: {}", e);
+                    return;
+                }
+                dbg!(&gifitem);
+                //https://media.giphy.com/media/g7GKcSzwQfugw/giphy.gif
+                //https://giphy.com/gifs/rick-roll-g7GKcSzwQfugw
+                //https://giphy.com/gifs/g7GKcSzwQfugw
+                let settings = gifitem.unwrap();
+
+                let media = gif.rsplit("/").next().unwrap();
+                let media = media.rsplit("-").next().unwrap();
+                let media_url = format!("https://i.giphy.com/media/{}/giphy.webp", media);
+                if let Err(e) = sources
+                    .set_source_settings::<serde_json::Value>(SourceSettings {
+                        source_name: &settings.source_name,
+                        source_type: Some(&settings.source_type),
+                        source_settings: &json!({ "url": media_url }),
+                    })
+                    .await
+                {
+                    println!("Error while setting source settings: {}", e);
+                }
+                let scene = client.scenes().get_current_scene().await.unwrap();
+
+                let gif_bot = scene.sources.iter().find(|item| item.name == "GifBot");
+                if let None = gif_bot {
+                    return;
+                }
+
+                let scene_item_render = SceneItemRender {
+                    scene_name: None,
+                    source: "GifBot",
+                    item: None,
+                    render: true,
+                };
+                if let Err(_) = client
+                    .scene_items()
+                    .set_scene_item_render(scene_item_render)
+                    .await
+                {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
+
+                let sources = client.sources();
+                let gifitem = sources
+                    .get_source_settings::<serde_json::Value>("GifBot", None)
+                    .await;
+                if let Err(e) = gifitem {
+                    eprintln!("Can't find GifBot source: {}", e);
+                    return;
+                }
+                eprintln!("gifitem after sleep {:?}", gifitem);
+
+                let source_settings = gifitem.unwrap().source_settings;
+
+                let url = source_settings.get("url");
+                if let None = url {
+                    eprintln!("No url attribute found: {:?}", url);
+                    return;
+                }
+                let url = url.unwrap();
+                if url.is_string() {
+                    if url.as_str().unwrap() != media_url {
+                        return;
+                    }
+                }
+                let scene_item_render = SceneItemRender {
+                    scene_name: None,
+                    source: "GifBot",
+                    item: None,
+                    render: false,
+                };
+                if let Err(_) = client
+                    .scene_items()
+                    .set_scene_item_render(scene_item_render)
+                    .await
+                {
+                    return;
+                }
+            }
+
             TwitchCommand::Switch => {
                 // Connect to the OBS instance through obs-websocket.
                 let client = Client::connect("localhost", 4444).await.unwrap();
@@ -298,36 +436,15 @@ impl TwitchCommand {
                 // Get a list of available scenes and print them out.
                 let scene = client.scenes().get_current_scene().await.unwrap();
 
-                let ed = scene.sources.iter().find(|item| item.name == "Ed_Popup");
-                if let None = ed {
-                    return;
-                }
-                let ed = ed.unwrap();
-                let next_render_state = !ed.render;
-                let scene_item_render = SceneItemRender {
-                    scene_name: None,
-                    source: "Ed_Popup",
-                    item: None,
-                    render: next_render_state,
+                let next_scene = match scene.name.as_str() {
+                    "_STUCK_Live" => "_STUCK_Live_Ed",
+                    "_STUCK_Live_Ed" => "_STUCK_Live",
+                    _ => return,
                 };
-                if let Err(_) = client
-                    .scene_items()
-                    .set_scene_item_render(scene_item_render)
-                    .await
-                {
-                    return;
-                }
-                let scene_item_render = SceneItemRender {
-                    scene_name: None,
-                    source: "Dario_Screen",
-                    item: None,
-                    render: !next_render_state,
-                };
-                if let Err(_) = client
-                    .scene_items()
-                    .set_scene_item_render(scene_item_render)
-                    .await
-                {
+
+                let set_scene = client.scenes().set_current_scene(next_scene).await;
+                if let Err(e) = set_scene {
+                    eprintln!("Error while changing scene: {}", e);
                     return;
                 }
                 ctx.twitch_irc_client
@@ -335,13 +452,105 @@ impl TwitchCommand {
                         msg.channel_login,
                         format!(
                             "Screen switched to {}",
-                            if next_render_state { "Fisken" } else { "Satu" }
+                            if next_scene == "_STUCK_Live_Ed" {
+                                "Fisken"
+                            } else {
+                                "Satu"
+                            }
                         ),
                     )
                     .await
                     .unwrap();
             }
 
+            TwitchCommand::Sound => {
+                let query = &msg.message_text[6..].trim();
+                let directory = "/home/ed/obs/audio/";
+                let sound = match query.to_lowercase().as_str() {
+                    "pizza" => "pizza.mp3",
+                    "horn" => "horn.mp3",
+                    "waa" => "waa.mp3",
+                    "wine" => "wine.mp3",
+                    "go" => "go.mp3",
+                    _ => {
+                        ctx.twitch_irc_client
+                            .say(
+                                msg.channel_login,
+                                format!(
+                                    "@{}: {}",
+                                    &msg.sender.login,
+                                    "Enter a sound to play - Pizza, Horn, Waa, Wine, Go".to_owned()
+                                ),
+                            )
+                            .await
+                            .unwrap();
+                        return;
+                    }
+                };
+
+                let file_path = format!("{}{}", directory, sound);
+                // Connect to the OBS instance through obs-websocket.
+                let client = Client::connect("localhost", 4444).await.unwrap();
+
+                // Optionally log-in (if enabled in obs-websocket) to allow other APIs and receive events.
+                client.login(Some("stucker")).await.unwrap();
+
+                // Get a list of available scenes and print them out.
+                //let scene = client.scenes().get_current_scene().await.unwrap();
+                let sources = client.sources();
+                let audio_source = sources
+                    .get_source_settings::<serde_json::Value>("Audio_Source", None)
+                    .await;
+                if let Err(e) = audio_source {
+                    println!("Can't find Audio_Source source: {}", e);
+                    return;
+                }
+                dbg!(&audio_source);
+                let settings = audio_source.unwrap();
+                if let Err(e) = sources
+                    .set_source_settings::<serde_json::Value>(SourceSettings {
+                        source_name: &settings.source_name,
+                        source_type: Some(&settings.source_type),
+                        source_settings: &json!({ "local_file": file_path }),
+                    })
+                    .await
+                {
+                    println!("Error while setting source settings: {}", e);
+                }
+                let scene = client.scenes().get_current_scene().await.unwrap();
+
+                let audio_source = scene.sources.iter().find(|item| item.name == "Audio_Source");
+                if let None = audio_source {
+                    return;
+                }
+
+                // let scene_item_render = SceneItemRender {
+                //     scene_name: None,
+                //     source: "Audio_Source",
+                //     item: None,
+                //     render: false,
+                // };
+                // if let Err(_) = client
+                //     .scene_items()
+                //     .set_scene_item_render(scene_item_render)
+                //     .await
+                // {
+                //     return;
+                // }
+                let scene_item_render = SceneItemRender {
+                    scene_name: None,
+                    source: "Audio_Source",
+                    item: None,
+                    render: true,
+                };
+                if let Err(_) = client
+                    .scene_items()
+                    .set_scene_item_render(scene_item_render)
+                    .await
+                {
+                    return;
+                }
+            }
             TwitchCommand::Kick => {
                 if &msg.sender.login != &ctx.ferris_bot_config.twitch.channel_name {
                     return;
@@ -394,9 +603,11 @@ impl TwitchCommand {
                 "../assets/bazylia.txt"
             ))),
             ("!zoya", _) => Some(TwitchCommand::Broadcast(include_str!("../assets/zoya.txt"))),
-            ("!discord", _) => Some(TwitchCommand::Broadcast("https://discord.gg/UyrsFX7N")),
+            ("!discord", _) => Some(TwitchCommand::Broadcast("https://discord.gg/RhpnmgWQyu")),
             ("!nothing", _) => Some(TwitchCommand::ReplyWith("this commands does nothing!")),
             ("!switchscreen", _) => Some(TwitchCommand::Switch),
+            ("!gif", _) => Some(TwitchCommand::Gif),
+            ("!sound", _) => Some(TwitchCommand::Sound),
             _ => None,
         }
     }

@@ -9,6 +9,7 @@ async-trait = "0.1.42"
 chrono = "0.4"
 futures = "0.3"
 itertools = "0.10.0"
+giphy-api = "0.1.4"
 log = "0.4.14"
 oauth2 = "4.0.0-alpha"
 obws = "0.7"
@@ -19,6 +20,7 @@ structopt = "0.3.13"
 surf = "2.2"
 tiny_http = "0.6"
 tokio = { version = "1", features = ["full"] }
+tokio-compat-02 = "0.2"
 toml = "0.4.2"
 twitch_api2 = { features = ["client", "helix", "surf_client", "twitch_oauth2"], git = "https://github.com/Emilgardis/twitch_api2/", branch = "master"  }
 twitch-irc = { version = "2.2.0", features = ["refreshing-token"] }
