@@ -413,8 +413,8 @@ impl TwitchCommand {
                                 }
                                 GuessResult::Incorrect(interval) => {
                                     format!(
-                                        "Wrong guess! The hidden word is between \"{}\" and \"{}\"",
-                                        interval.lower_bound, interval.upper_bound
+                                        "Wrong guess! The hidden word is between \"{}\" and \"{}\", the Hamming distance to your guess is: {}",
+                                        interval.lower_bound, interval.upper_bound, game.hamming_distance(String::from(*word))
                                     )
                                 }
                                 GuessResult::InvalidWord => {
