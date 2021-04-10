@@ -34,7 +34,7 @@ use word_stonks::{GuessResult, WordStonksGame};
 struct FerrisBotConfig {
     twitch: TwitchConfig,
     giphy: Option<GiphyConfig>,
-    queue_manager: QueueManagerConfig,
+    queue_manager: Option<QueueManagerConfig>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -77,8 +77,28 @@ pub async fn main() {
         .init()
         .unwrap();
 
-    let config = fs::read_to_string(args.config_file).unwrap();
-    let config: FerrisBotConfig = toml::from_str(&config).unwrap();
+    let config = match fs::read_to_string(&args.config_file) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!(
+                "Error opening the configuration file {}: {}",
+                args.config_file, e
+            );
+            eprintln!("Create the file or use the --config_file flag to specify an alternative file location");
+            return;
+        }
+    };
+
+    let config: FerrisBotConfig = match toml::from_str(&config) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!(
+                "Error parsing configuration file {}: {}",
+                args.config_file, e
+            );
+            return;
+        }
+    };
 
     let mut token_storage = CustomTokenStorage {
         token_checkpoint_file: config.twitch.token_filepath.clone(),
@@ -117,12 +137,17 @@ pub async fn main() {
     let obs_client = Client::connect("localhost", 4444).await.unwrap();
     obs_client.login(Some("stucker")).await.unwrap();
 
+    let queue_manager = match &config.queue_manager {
+        None => None,
+        Some(cfg) => Some(Mutex::new(QueueManager::new(
+            cfg.capacity,
+            &cfg.queue_storage,
+        ))),
+    };
+
     let mut context = Context {
         ferris_bot_config: config.clone(),
-        queue_manager: Mutex::new(QueueManager::new(
-            config.queue_manager.capacity,
-            &config.queue_manager.queue_storage,
-        )),
+        queue_manager,
         twitch_irc_client,
         token_storage,
         word_stonks_game: None,
@@ -189,7 +214,7 @@ struct Context {
     ferris_bot_config: FerrisBotConfig,
     twitch_irc_client:
         TwitchIRCClient<TCPTransport, RefreshingLoginCredentials<CustomTokenStorage>>,
-    queue_manager: Mutex<QueueManager>,
+    queue_manager: Option<Mutex<QueueManager>>,
     token_storage: CustomTokenStorage,
     word_stonks_game: Option<WordStonksGame>,
     obs_client: Client,
@@ -215,6 +240,13 @@ impl TwitchCommand {
     async fn handle(self, msg: PrivmsgMessage, ctx: &mut Context) {
         match self {
             TwitchCommand::Join => {
+                let queue_manager = match &ctx.queue_manager {
+                    None => {
+                        return;
+                    }
+                    Some(q) => q,
+                };
+
                 debug!("Join received");
 
                 let user_type = if is_user_subscriber(&ctx, &msg.sender.login, &msg.badges).await {
@@ -222,8 +254,7 @@ impl TwitchCommand {
                 } else {
                     queue_manager::UserType::Default
                 };
-                let result = ctx
-                    .queue_manager
+                let result = queue_manager
                     .lock()
                     .unwrap()
                     .join(&msg.sender.login, user_type);
@@ -246,8 +277,15 @@ impl TwitchCommand {
                     .unwrap();
             }
             TwitchCommand::Queue => {
+                let queue_manager = match &ctx.queue_manager {
+                    None => {
+                        return;
+                    }
+                    Some(q) => q,
+                };
+
                 let reply = {
-                    let queue_manager = ctx.queue_manager.lock().unwrap();
+                    let queue_manager = queue_manager.lock().unwrap();
                     join(queue_manager.queue(), ", ")
                 };
                 ctx.twitch_irc_client
@@ -277,7 +315,13 @@ impl TwitchCommand {
             }
 
             TwitchCommand::Leave => {
-                let result = ctx.queue_manager.lock().unwrap().leave(&msg.sender.login);
+                let queue_manager = match &ctx.queue_manager {
+                    None => {
+                        return;
+                    }
+                    Some(q) => q,
+                };
+                let result = queue_manager.lock().unwrap().leave(&msg.sender.login);
 
                 let message: &str;
                 match result {
@@ -294,10 +338,16 @@ impl TwitchCommand {
                     .unwrap();
             }
             TwitchCommand::Next => {
+                let queue_manager = match &ctx.queue_manager {
+                    None => {
+                        return;
+                    }
+                    Some(q) => q,
+                };
                 if &msg.sender.login != &ctx.ferris_bot_config.twitch.channel_name {
                     return;
                 }
-                let result = ctx.queue_manager.lock().unwrap().next();
+                let result = queue_manager.lock().unwrap().next();
 
                 let message = match result {
                     Some(next_user) => format!("@{} is the next user to play!", next_user),
@@ -578,6 +628,12 @@ impl TwitchCommand {
                 }
             }
             TwitchCommand::Kick => {
+                let queue_manager = match &ctx.queue_manager {
+                    None => {
+                        return;
+                    }
+                    Some(q) => q,
+                };
                 if &msg.sender.login != &ctx.ferris_bot_config.twitch.channel_name {
                     return;
                 }
@@ -586,7 +642,7 @@ impl TwitchCommand {
                     None => "Please specify which user to kick".to_owned(),
                     Some(word) => {
                         let user = word.trim_start_matches("@").to_lowercase();
-                        let result = ctx.queue_manager.lock().unwrap().kick(&user);
+                        let result = queue_manager.lock().unwrap().kick(&user);
                         match result {
                             Err(QueueManagerLeaveError::UserNotInQueue) => {
                                 format!("User {} is not in queue", user)
