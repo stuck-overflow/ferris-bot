@@ -46,7 +46,7 @@ ferrisbot.toml:
 
 ```toml
 [twitch]
-...
+# ...
 token_filepath = '/token/auth_token.json'
 ```
 
