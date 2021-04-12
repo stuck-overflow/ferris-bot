@@ -1,5 +1,6 @@
 use rand::Rng;
-use std::{collections::HashSet, iter::repeat};
+use std::collections::HashSet;
+use std::iter::repeat;
 
 #[derive(Debug)]
 pub struct WordStonksGame {
@@ -98,12 +99,8 @@ impl WordStonksGame {
         // Push spaces to the shorter string.
         w2.push_str(&append_spaces);
         // Calculating the Hamming distance
-        w1.chars()
-          .zip(w2.chars()) 
-          .filter(|(x,y)| x != y)
-          .count() as u32
+        w1.chars().zip(w2.chars()).filter(|(x, y)| x != y).count() as u32
     }
-    
 }
 #[cfg(test)]
 mod tests {

@@ -112,7 +112,8 @@ impl QueueManager {
 mod tests {
     use super::*;
     use mktemp::Temp;
-    use rand::{distributions::Alphanumeric, thread_rng, Rng};
+    use rand::distributions::Alphanumeric;
+    use rand::{thread_rng, Rng};
     fn gen_random_user() -> String {
         let rng = thread_rng();
 
