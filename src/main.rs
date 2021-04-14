@@ -4,9 +4,7 @@ mod word_stonks;
 
 use itertools::join;
 use log::{debug, trace, LevelFilter};
-use queue_manager::QueueManager;
-use queue_manager::QueueManagerJoinError;
-use queue_manager::QueueManagerLeaveError;
+use queue_manager::{QueueManager, QueueManagerJoinError, QueueManagerLeaveError};
 use serde::Deserialize;
 use simple_logger::SimpleLogger;
 use std::sync::Mutex;
@@ -18,8 +16,7 @@ use twitch_api2::helix::users::GetUsersRequest;
 use twitch_api2::twitch_oauth2::Scope;
 use twitch_api2::TwitchClient;
 use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage};
-use twitch_irc::message::Badge;
-use twitch_irc::message::{PrivmsgMessage, ServerMessage};
+use twitch_irc::message::{Badge, PrivmsgMessage, ServerMessage};
 use twitch_irc::{ClientConfig, TCPTransport, TwitchIRCClient};
 use word_stonks::{GuessResult, WordStonksGame};
 
@@ -413,8 +410,8 @@ impl TwitchCommand {
                                 }
                                 GuessResult::Incorrect(interval) => {
                                     format!(
-                                        "Wrong guess! The hidden word is between \"{}\" and \"{}\"",
-                                        interval.lower_bound, interval.upper_bound
+                                        "Wrong guess! The hidden word is between \"{}\" and \"{}\", the Hamming distance to your guess is: {}",
+                                        interval.lower_bound, interval.upper_bound, game.hamming_distance(String::from(*word))
                                     )
                                 }
                                 GuessResult::InvalidWord => {

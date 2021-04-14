@@ -1,5 +1,6 @@
 use rand::Rng;
 use std::collections::HashSet;
+use std::iter::repeat;
 
 #[derive(Debug)]
 pub struct WordStonksGame {
@@ -83,8 +84,24 @@ impl WordStonksGame {
     pub fn current_word_interval(&self) -> &WordInterval {
         &self.current_word_interval
     }
-}
 
+    pub fn hamming_distance(&self, guess: String) -> u32 {
+        // Not the cleanest solution, but words won't be that large, so this clone should be okay.
+        let word1 = self.word_to_guess.clone();
+        // w1 is always the longer word.
+        let (w1, mut w2) = if word1.len() > guess.len() {
+            (word1, guess)
+        } else {
+            (guess, word1)
+        };
+        // Generate the correct amount of spaces to 'pad' the shorter string.
+        let append_spaces = repeat(" ").take(w1.len() - w2.len()).collect::<String>();
+        // Push spaces to the shorter string.
+        w2.push_str(&append_spaces);
+        // Calculating the Hamming distance
+        w1.chars().zip(w2.chars()).filter(|(x, y)| x != y).count() as u32
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,6 +115,26 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_hamming_distance() {
+        let forced_word = "Pong";
+        let game =
+            WordStonksGame::new_for_testing(include_str!("../assets/words.txt"), forced_word);
+        // Best test (and also different length of words).
+        let w1 = String::from("Stonk");
+        assert_eq!(game.hamming_distance(w1), 5);
+        // When both words are the same.
+        let w1 = String::from("Pong");
+        assert_eq!(game.hamming_distance(w1), 0);
+        // When both words are the same but different cases.
+        let w1 = String::from("pong");
+        assert_eq!(game.hamming_distance(w1), 1);
+        // When one of the words is the empty string.
+        let w1 = String::from("");
+        assert_eq!(game.hamming_distance(w1), 4);
+    }
+
     #[test]
     fn test_game() {
         let forced_word = "pond";
