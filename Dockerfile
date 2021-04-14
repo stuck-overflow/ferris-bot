@@ -16,4 +16,4 @@ COPY --from=builder /usr/src/ferris_bot/target/release/ferris_bot /usr/bin
 RUN apk add libgcc
 ENTRYPOINT \
     /usr/bin/ferris_bot \
-    --config-file /etc/ferrisbot.toml
+    --config-file /config/ferrisbot.toml

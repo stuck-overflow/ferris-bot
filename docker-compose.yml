@@ -1,0 +1,27 @@
+version: "3.3"
+services:
+    ferrisbot:
+        # If you want to build the bot from source, comment the `image` line and
+        # uncomment the following line:
+        #
+        # build: .
+        #
+        # to force a rebuild, run `docker-compose build --no-cache`
+        image: stuckoverflow/ferrisbot:latest
+        extra_hosts:
+            # To allow the bot to reach the OBS websocket port running on the
+            # host server, set the `host.docker.internal` address to reach the
+            # host.
+            - "host.docker.internal:host-gateway"
+        ports:
+            # This port is opened by the bot as part of the authentication flow.
+            - "10666:10666"
+        volumes:
+            - ./ferrisbot.toml:/config/ferrisbot.toml
+            # To persist state such as the Twitch authentication token or the
+            # queue manager state, make sure the file paths in the configuration
+            # file point at `/state/somefilename` to persist them across runs.
+            - state:/state
+volumes:
+    state: {}
+
