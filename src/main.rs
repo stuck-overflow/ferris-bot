@@ -9,9 +9,7 @@ use obws::{
     requests::{SceneItemRender, SourceSettings},
     Client,
 };
-use queue_manager::QueueManager;
-use queue_manager::QueueManagerJoinError;
-use queue_manager::QueueManagerLeaveError;
+use queue_manager::{QueueManager, QueueManagerJoinError, QueueManagerLeaveError};
 use serde::Deserialize;
 use serde_json::json;
 use simple_logger::SimpleLogger;
@@ -25,8 +23,7 @@ use twitch_api2::helix::users::GetUsersRequest;
 use twitch_api2::twitch_oauth2::Scope;
 use twitch_api2::TwitchClient;
 use twitch_irc::login::{RefreshingLoginCredentials, TokenStorage};
-use twitch_irc::message::Badge;
-use twitch_irc::message::{PrivmsgMessage, ServerMessage};
+use twitch_irc::message::{Badge, PrivmsgMessage, ServerMessage};
 use twitch_irc::{ClientConfig, TCPTransport, TwitchIRCClient};
 use word_stonks::{GuessResult, WordStonksGame};
 

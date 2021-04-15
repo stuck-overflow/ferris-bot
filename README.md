@@ -13,3 +13,13 @@ file (see `sample.ferrisbot.toml` for an example).
 
 On first run, the bot will print an URL you need to go to in order to complete
 the authentication process.
+
+## Run the bot via Docker
+
+You can run the bot via Docker using a prebuilt image. You will still need to
+prepare a `ferrisbot.toml` as described in the previous section. You have to
+pass the `ferrisbot.toml` to the docker image using the `-v` option. You also
+need to forward the port `10666` which is needed for the authentication flow.
+
+The preferred way to run the mode is via `docker-compose`. For your convenience
+please refer to the [`docker-compose.yml`](docker-compose.yml) file.
