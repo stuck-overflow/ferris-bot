@@ -5,16 +5,15 @@ mod word_stonks;
 use giphy_api::Giphy;
 use itertools::join;
 use log::{debug, trace, LevelFilter};
-use obws::{
-    requests::{SceneItemRender, SourceSettings},
-    Client,
-};
+use obws::requests::{SceneItemRender, SourceSettings};
+use obws::Client;
 use queue_manager::{QueueManager, QueueManagerJoinError, QueueManagerLeaveError};
 use serde::Deserialize;
 use serde_json::json;
 use simple_logger::SimpleLogger;
+use std::sync::Mutex;
+use std::time::Duration;
 use std::{fs, str};
-use std::{sync::Mutex, time::Duration};
 use structopt::StructOpt;
 use token_storage::CustomTokenStorage;
 use tokio_compat_02::FutureExt;
@@ -32,6 +31,14 @@ struct FerrisBotConfig {
     twitch: TwitchConfig,
     giphy: Option<GiphyConfig>,
     queue_manager: Option<QueueManagerConfig>,
+    obs: Option<ObsConfig>,
+}
+
+#[derive(Clone, Deserialize)]
+struct ObsConfig {
+    host: String,
+    port: u16,
+    password: String,
 }
 
 #[derive(Clone, Deserialize)]
@@ -131,8 +138,15 @@ pub async fn main() {
 
     let (mut incoming_messages, twitch_irc_client) =
         TwitchIRCClient::<TCPTransport, _>::new(irc_config);
-    let obs_client = Client::connect("localhost", 4444).await.unwrap();
-    obs_client.login(Some("stucker")).await.unwrap();
+
+    let obs_client = match &config.obs {
+        None => None,
+        Some(obs_cfg) => {
+            let client = Client::connect(&obs_cfg.host, obs_cfg.port).await.unwrap();
+            client.login(Some(&obs_cfg.password)).await.unwrap();
+            Some(client)
+        }
+    };
 
     let queue_manager = match &config.queue_manager {
         None => None,
@@ -144,8 +158,8 @@ pub async fn main() {
 
     let mut context = Context {
         ferris_bot_config: config.clone(),
-        queue_manager,
         twitch_irc_client,
+        queue_manager,
         token_storage,
         word_stonks_game: None,
         obs_client,
@@ -214,7 +228,7 @@ struct Context {
     queue_manager: Option<Mutex<QueueManager>>,
     token_storage: CustomTokenStorage,
     word_stonks_game: Option<WordStonksGame>,
-    obs_client: Client,
+    obs_client: Option<Client>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -361,6 +375,12 @@ impl TwitchCommand {
             }
 
             TwitchCommand::Gif => {
+                let obs_client = match &ctx.obs_client {
+                    None => {
+                        return;
+                    }
+                    Some(c) => c,
+                };
                 let api_key = match &ctx.ferris_bot_config.giphy {
                     None => {
                         return;
@@ -401,9 +421,6 @@ impl TwitchCommand {
                     return;
                 }
                 let gif = &gif[0].url;
-                // Connect to the OBS instance through obs-websocket.
-                let obs_client = &ctx.obs_client;
-                // Optionally log-in (if enabled in obs-websocket) to allow other APIs and receive events.
 
                 // Get a list of available scenes and print them out.
                 //let scene = client.scenes().get_current_scene().await.unwrap();
@@ -495,11 +512,12 @@ impl TwitchCommand {
             }
 
             TwitchCommand::Switch => {
-                // Connect to the OBS instance through obs-websocket.
-                let obs_client = &ctx.obs_client;
-
-                // Optionally log-in (if enabled in obs-websocket) to allow other APIs and receive events.
-                obs_client.login(Some("stucker")).await.unwrap();
+                let obs_client = match &ctx.obs_client {
+                    None => {
+                        return;
+                    }
+                    Some(c) => c,
+                };
 
                 // Get a list of available scenes and print them out.
                 let scene = obs_client.scenes().get_current_scene().await.unwrap();
@@ -532,6 +550,12 @@ impl TwitchCommand {
             }
 
             TwitchCommand::Sound => {
+                let obs_client = match &ctx.obs_client {
+                    None => {
+                        return;
+                    }
+                    Some(c) => c,
+                };
                 let query = &msg.message_text[6..].trim();
                 let directory = "/home/ed/obs/audio/";
                 let sound = match query.to_lowercase().as_str() {
@@ -560,10 +584,6 @@ impl TwitchCommand {
                 };
 
                 let file_path = format!("{}{}", directory, sound);
-                // Connect to the OBS instance through obs-websocket.
-
-                let obs_client = &ctx.obs_client;
-                // Optionally log-in (if enabled in obs-websocket) to allow other APIs and receive events.
 
                 // Get a list of available scenes and print them out.
                 //let scene = client.scenes().get_current_scene().await.unwrap();

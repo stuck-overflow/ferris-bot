@@ -1,5 +1,6 @@
 use rand::Rng;
-use std::{collections::HashSet, iter::repeat};
+use std::collections::HashSet;
+use std::iter::repeat;
 
 #[derive(Debug)]
 pub struct WordStonksGame {

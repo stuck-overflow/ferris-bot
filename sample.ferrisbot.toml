@@ -11,3 +11,8 @@ queue_storage = 'queue_storage.json'
 
 [giphy]
 api_key = 'YOUR_GIPHY_API_KEY'
+
+[obs]
+host = 'localhost'
+port = 4444
+password = 'STUCKER'
