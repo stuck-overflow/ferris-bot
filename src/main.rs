@@ -39,6 +39,7 @@ struct ObsConfig {
     host: String,
     port: u16,
     password: String,
+    gif_source:String,
 }
 
 #[derive(Clone, Deserialize)]
@@ -421,15 +422,15 @@ impl TwitchCommand {
                     return;
                 }
                 let gif = &gif[0].url;
+                let gif_source = &ctx.ferris_bot_config.obs.as_ref().unwrap().gif_source;
 
                 // Get a list of available scenes and print them out.
-                //let scene = client.scenes().get_current_scene().await.unwrap();
                 let sources = obs_client.sources();
                 let gifitem = sources
-                    .get_source_settings::<serde_json::Value>("GifBot", None)
+                    .get_source_settings::<serde_json::Value>(gif_source, None)
                     .await;
                 if let Err(e) = gifitem {
-                    println!("Can't find GifBot source: {}", e);
+                    eprintln!("Can't find OBS source {} for Gif display: {}", &gif_source, e);
                     return;
                 }
                 dbg!(&gifitem);
@@ -452,15 +453,14 @@ impl TwitchCommand {
                     println!("Error while setting source settings: {}", e);
                 }
                 let scene = obs_client.scenes().get_current_scene().await.unwrap();
-
-                let gif_bot = scene.sources.iter().find(|item| item.name == "GifBot");
+                let gif_bot = scene.sources.iter().find(|item| &item.name == gif_source);
                 if let None = gif_bot {
                     return;
                 }
 
                 let scene_item_render = SceneItemRender {
                     scene_name: None,
-                    source: "GifBot",
+                    source: gif_source,
                     item: None,
                     render: true,
                 };
@@ -475,13 +475,12 @@ impl TwitchCommand {
 
                 let sources = obs_client.sources();
                 let gifitem = sources
-                    .get_source_settings::<serde_json::Value>("GifBot", None)
+                    .get_source_settings::<serde_json::Value>(gif_source, None)
                     .await;
                 if let Err(e) = gifitem {
-                    eprintln!("Can't find GifBot source: {}", e);
+                    eprintln!("Can't find OBS source {} for Gif display: {}", &gif_source, e);
                     return;
                 }
-                eprintln!("gifitem after sleep {:?}", gifitem);
 
                 let source_settings = gifitem.unwrap().source_settings;
 
@@ -498,7 +497,7 @@ impl TwitchCommand {
                 }
                 let scene_item_render = SceneItemRender {
                     scene_name: None,
-                    source: "GifBot",
+                    source: &gif_source,
                     item: None,
                     render: false,
                 };
