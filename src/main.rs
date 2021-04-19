@@ -39,7 +39,9 @@ struct ObsConfig {
     host: String,
     port: u16,
     password: String,
-    gif_source:String,
+    gif_source: Option<String>,
+    scene_1: Option<String>,
+    scene_2: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -253,9 +255,7 @@ impl TwitchCommand {
         match self {
             TwitchCommand::Join => {
                 let queue_manager = match &ctx.queue_manager {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(q) => q,
                 };
 
@@ -290,9 +290,7 @@ impl TwitchCommand {
             }
             TwitchCommand::Queue => {
                 let queue_manager = match &ctx.queue_manager {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(q) => q,
                 };
 
@@ -328,9 +326,7 @@ impl TwitchCommand {
 
             TwitchCommand::Leave => {
                 let queue_manager = match &ctx.queue_manager {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(q) => q,
                 };
                 let result = queue_manager.lock().unwrap().leave(&msg.sender.login);
@@ -351,9 +347,7 @@ impl TwitchCommand {
             }
             TwitchCommand::Next => {
                 let queue_manager = match &ctx.queue_manager {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(q) => q,
                 };
                 if &msg.sender.login != &ctx.ferris_bot_config.twitch.channel_name {
@@ -377,15 +371,16 @@ impl TwitchCommand {
 
             TwitchCommand::Gif => {
                 let obs_client = match &ctx.obs_client {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(c) => c,
                 };
+                let gif_source = match &ctx.ferris_bot_config.obs.as_ref().unwrap().gif_source {
+                    None => return,
+                    Some(g) => g,
+                };
+
                 let api_key = match &ctx.ferris_bot_config.giphy {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(giphy_config) => &giphy_config.api_key,
                 };
                 let query = &msg.message_text[4..].trim();
@@ -422,7 +417,6 @@ impl TwitchCommand {
                     return;
                 }
                 let gif = &gif[0].url;
-                let gif_source = &ctx.ferris_bot_config.obs.as_ref().unwrap().gif_source;
 
                 // Get a list of available scenes and print them out.
                 let sources = obs_client.sources();
@@ -430,7 +424,10 @@ impl TwitchCommand {
                     .get_source_settings::<serde_json::Value>(gif_source, None)
                     .await;
                 if let Err(e) = gifitem {
-                    eprintln!("Can't find OBS source {} for Gif display: {}", &gif_source, e);
+                    eprintln!(
+                        "Can't find OBS source {} for Gif display: {}",
+                        &gif_source, e
+                    );
                     return;
                 }
                 dbg!(&gifitem);
@@ -478,7 +475,10 @@ impl TwitchCommand {
                     .get_source_settings::<serde_json::Value>(gif_source, None)
                     .await;
                 if let Err(e) = gifitem {
-                    eprintln!("Can't find OBS source {} for Gif display: {}", &gif_source, e);
+                    eprintln!(
+                        "Can't find OBS source {} for Gif display: {}",
+                        &gif_source, e
+                    );
                     return;
                 }
 
@@ -512,20 +512,26 @@ impl TwitchCommand {
 
             TwitchCommand::Switch => {
                 let obs_client = match &ctx.obs_client {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(c) => c,
+                };
+                let obs = &ctx.ferris_bot_config.obs.as_ref().unwrap();
+                let (scene_1, scene_2) = match obs.scene_1.as_ref().zip(obs.scene_2.as_ref()) {
+                    None => return,
+                    Some(pair) => pair,
                 };
 
                 // Get a list of available scenes and print them out.
                 let scene = obs_client.scenes().get_current_scene().await.unwrap();
 
-                let next_scene = match scene.name.as_str() {
-                    "_STUCK_Live" => "_STUCK_Live_Ed",
-                    "_STUCK_Live_Ed" => "_STUCK_Live",
-                    _ => return,
-                };
+                let next_scene;
+                if &scene.name == scene_1 {
+                    next_scene = scene_2;
+                } else if &scene.name == scene_2 {
+                    next_scene = scene_1;
+                } else {
+                    return;
+                }
 
                 let set_scene = obs_client.scenes().set_current_scene(next_scene).await;
                 if let Err(e) = set_scene {
@@ -535,14 +541,7 @@ impl TwitchCommand {
                 ctx.twitch_irc_client
                     .say(
                         msg.channel_login,
-                        format!(
-                            "Screen switched to {}",
-                            if next_scene == "_STUCK_Live_Ed" {
-                                "Fisken"
-                            } else {
-                                "Satu"
-                            }
-                        ),
+                        format!("Screen switched to {}", next_scene),
                     )
                     .await
                     .unwrap();
@@ -550,9 +549,7 @@ impl TwitchCommand {
 
             TwitchCommand::Sound => {
                 let obs_client = match &ctx.obs_client {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(c) => c,
                 };
                 let query = &msg.message_text[6..].trim();
@@ -616,19 +613,6 @@ impl TwitchCommand {
                     return;
                 }
 
-                // let scene_item_render = SceneItemRender {
-                //     scene_name: None,
-                //     source: "Audio_Source",
-                //     item: None,
-                //     render: false,
-                // };
-                // if let Err(_) = client
-                //     .scene_items()
-                //     .set_scene_item_render(scene_item_render)
-                //     .await
-                // {
-                //     return;
-                // }
                 let scene_item_render = SceneItemRender {
                     scene_name: None,
                     source: "Audio_Source",
@@ -645,9 +629,7 @@ impl TwitchCommand {
             }
             TwitchCommand::Kick => {
                 let queue_manager = match &ctx.queue_manager {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(q) => q,
                 };
                 if &msg.sender.login != &ctx.ferris_bot_config.twitch.channel_name {

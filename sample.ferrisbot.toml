@@ -18,6 +18,12 @@ host = 'localhost'
 port = 4444
 password = 'STUCKER'
 
-# This should be of type browser source
+# If set, this is the source used to display a GIF when requested with the !gif
+# command. This source should be of type browser source.
 gif_source = 'GifBot'
+
+# If set, the !switchscreen command will alternate between the two OBS scenes
+# in scene_1 and scene_2.
+scene_1 = '_STUCK_Live'
+scene_2 = '_STUCK_Live_Ed'
 
