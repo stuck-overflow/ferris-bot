@@ -24,6 +24,7 @@ gif_source = 'GifBot'
 
 # If set, the !switchscreen command will alternate between the two OBS scenes
 # in scene_1 and scene_2.
-scene_1 = '_STUCK_Live'
-scene_2 = '_STUCK_Live_Ed'
+scene_1 = 'Fisken'
+scene_2 = 'Dario'
 
+alan_box_sourceitem = 'Alan Box'

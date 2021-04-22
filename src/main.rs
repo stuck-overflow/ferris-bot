@@ -8,6 +8,7 @@ use log::{debug, trace, LevelFilter};
 use obws::requests::{SceneItemRender, SourceSettings};
 use obws::Client;
 use queue_manager::{QueueManager, QueueManagerJoinError, QueueManagerLeaveError};
+use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
 use simple_logger::SimpleLogger;
@@ -42,6 +43,7 @@ struct ObsConfig {
     gif_source: Option<String>,
     scene_1: Option<String>,
     scene_2: Option<String>,
+    alan_box_sourceitem: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -244,6 +246,7 @@ enum TwitchCommand {
     Switch,
     Gif,
     Sound,
+    AlanBox,
     ReplyWith(&'static str),
     Broadcast(&'static str),
     WordGuess,
@@ -368,7 +371,100 @@ impl TwitchCommand {
                     .await
                     .unwrap();
             }
+            TwitchCommand::AlanBox => {
+                let obs_client = match &ctx.obs_client {
+                    None => return,
+                    Some(c) => c,
+                };
+                let alan_box_sourceitem = match &ctx
+                    .ferris_bot_config
+                    .obs
+                    .as_ref()
+                    .unwrap()
+                    .alan_box_sourceitem
+                {
+                    None => return,
+                    Some(g) => g,
+                };
+                let alan_text = &msg.message_text[8..].trim();
+                if alan_text.len() == 0 {
+                    ctx.twitch_irc_client
+                        .say(
+                            msg.channel_login,
+                            format!(
+                                "@{}: {}",
+                                &msg.sender.login,
+                                "Leave a message to Alan!".to_owned()
+                            ),
+                        )
+                        .await
+                        .unwrap();
+                    return;
+                }
 
+                // Create new lines if input by user.
+                let re = Regex::new(r#"\\n"#).unwrap();
+                let alan_text = re.replace_all(alan_text, "\n");
+
+                // Parse the lines and wrap every line at max_cols characters.
+                let mut output = String::new();
+                let mut current_line;
+                let max_cols = 20;
+                for line in alan_text.split("\n") {
+                    if line.len() < max_cols {
+                        if output.len() > 0 {
+                            output.push_str("\n");
+                        }
+                        output.push_str(&line);
+                        continue;
+                    }
+                    current_line = String::new();
+                    for s in line.split(" ") {
+                        if (current_line.len() == 0) && (s.len() > max_cols) {
+                            if output.len() > 0 {
+                                output.push_str("\n");
+                            }
+                            output.push_str(&s);
+                            continue;
+                        }
+                        if (current_line.len() + 1 + s.len()) > max_cols {
+                            if output.len() > 0 {
+                                output.push_str("\n");
+                            }
+                            output.push_str(&current_line);
+                            current_line = s.to_string();
+                        } else {
+                            current_line.push_str(" ");
+                            current_line.push_str(&s);
+                        }
+                    }
+                    if output.len() > 0 {
+                        output.push_str("\n");
+                    }
+                    output.push_str(&current_line);
+                }
+                // Get a list of available scenes and print them out.
+                let sources = obs_client.sources();
+                let alan_box = sources
+                    .get_source_settings::<serde_json::Value>(alan_box_sourceitem, None)
+                    .await;
+                if let Err(e) = alan_box {
+                    eprintln!("Can't find OBS source {} for : {}", &alan_box_sourceitem, e);
+                    return;
+                }
+                let settings = alan_box.unwrap();
+
+                if let Err(e) = sources
+                    .set_source_settings::<serde_json::Value>(SourceSettings {
+                        source_name: &settings.source_name,
+                        source_type: Some(&settings.source_type),
+                        source_settings: &json!({ "text": output }),
+                    })
+                    .await
+                {
+                    println!("Error while setting source settings: {}", e);
+                }
+            }
             TwitchCommand::Gif => {
                 let obs_client = match &ctx.obs_client {
                     None => return,
@@ -751,6 +847,7 @@ impl TwitchCommand {
             ("!zoya", _) => Some(TwitchCommand::Broadcast(include_str!("../assets/zoya.txt"))),
             ("!discord", _) => Some(TwitchCommand::Broadcast("https://discord.gg/RhpnmgWQyu")),
             ("!nothing", _) => Some(TwitchCommand::ReplyWith("this commands does nothing!")),
+            ("!alanbox", _) => Some(TwitchCommand::AlanBox),
             ("!switchscreen", _) => Some(TwitchCommand::Switch),
             ("!gif", _) => Some(TwitchCommand::Gif),
             ("!sound", _) => Some(TwitchCommand::Sound),
