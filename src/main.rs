@@ -12,6 +12,7 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
 use simple_logger::SimpleLogger;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 use std::{fs, str};
@@ -44,6 +45,8 @@ struct ObsConfig {
     scene_1: Option<String>,
     scene_2: Option<String>,
     alan_box_sourceitem: Option<String>,
+    audio_folder: Option<PathBuf>,
+    sounds: Option<Vec<String>>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -409,7 +412,7 @@ impl TwitchCommand {
                 // Parse the lines and wrap every line at max_cols characters.
                 let mut output = String::new();
                 let mut current_line;
-                let max_cols = 20;
+                let max_cols = 50;
                 for line in alan_text.split("\n") {
                     if line.len() < max_cols {
                         if output.len() > 0 {
@@ -648,34 +651,43 @@ impl TwitchCommand {
                     None => return,
                     Some(c) => c,
                 };
-                let query = &msg.message_text[6..].trim();
-                let directory = "/home/ed/obs/audio/";
-                let sound = match query.to_lowercase().as_str() {
-                    "thoosly" => "thoosly.mp3",
-                    "elcodigo" => "elcodigo.mp3",
-                    "pizza" => "pizza.mp3",
-                    "horn" => "horn.mp3",
-                    "waa" => "waa.mp3",
-                    "wine" => "wine.mp3",
-                    "go" => "go.mp3",
-                    _ => {
-                        ctx.twitch_irc_client
-                            .say(
-                                msg.channel_login,
-                                format!(
-                                    "@{}: {}",
-                                    &msg.sender.login,
-                                    "Enter a sound to play - Pizza, Horn, Waa, Wine, Go, Thoosly, Elcodigo"
-                                        .to_owned()
-                                ),
-                            )
-                            .await
-                            .unwrap();
-                        return;
+
+                let obs = &ctx.ferris_bot_config.obs.as_ref().unwrap();
+                let directory = match &obs.audio_folder {
+                    None => return,
+                    Some(d) => d,
+                };
+                let sounds = match &obs.sounds {
+                    None => return,
+                    Some(s) => {
+                        if s.is_empty() {
+                            return;
+                        }
+                        s
                     }
                 };
 
-                let file_path = format!("{}{}", directory, sound);
+                let query = &msg.message_text[6..].trim();
+                if query.is_empty() {
+                    ctx.twitch_irc_client
+                        .say(
+                            msg.channel_login,
+                            format!("@{}: {}", &msg.sender.login, sounds.join(", ").to_owned()),
+                        )
+                        .await
+                        .unwrap();
+                    return;
+                }
+
+                dbg!(&directory);
+                let sound = query.to_lowercase();
+                let sound = match Path::new(&sound).file_name() {
+                    None => return,
+                    Some(s) => s,
+                };
+                dbg!(&sounds);
+                let sound_path = Path::new(directory).join(sound).with_extension("mp3");
+                dbg!(&sound_path);
 
                 // Get a list of available scenes and print them out.
                 //let scene = client.scenes().get_current_scene().await.unwrap();
@@ -689,11 +701,12 @@ impl TwitchCommand {
                 }
                 dbg!(&audio_source);
                 let settings = audio_source.unwrap();
+                let sound_path = sound_path.to_str().unwrap();
                 if let Err(e) = sources
                     .set_source_settings::<serde_json::Value>(SourceSettings {
                         source_name: &settings.source_name,
                         source_type: Some(&settings.source_type),
-                        source_settings: &json!({ "local_file": file_path }),
+                        source_settings: &json!({ "local_file": sound_path }),
                     })
                     .await
                 {
