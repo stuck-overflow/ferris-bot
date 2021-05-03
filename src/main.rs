@@ -120,7 +120,7 @@ pub async fn main() {
     // stored one before or it's unparsable, go through the authentication
     // workflow.
     if let Err(_) = token_storage.load_token().await {
-        let user_token = twitch_oauth2_auth_flow::auth_flow(
+        let user_token = match twitch_oauth2_auth_flow::auth_flow(
             &config.twitch.client_id,
             &config.twitch.secret,
             Some(vec![
@@ -128,7 +128,14 @@ pub async fn main() {
                 Scope::ChatEdit,
                 Scope::ChatRead,
             ]),
-        );
+            "http://localhost:10666/twitch/token",
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("Error during the authentication flow: {}", e);
+                return;
+            }
+        };
         token_storage
             .write_twitch_oauth2_user_token(
                 &user_token,
