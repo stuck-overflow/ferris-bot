@@ -5,8 +5,10 @@ mod word_stonks;
 use itertools::join;
 use log::{debug, trace, LevelFilter};
 use queue_manager::{QueueManager, QueueManagerJoinError, QueueManagerLeaveError};
+use regex::Regex;
 use serde::Deserialize;
 use simple_logger::SimpleLogger;
+use std::process::Command;
 use std::sync::Mutex;
 use std::{fs, str};
 use structopt::StructOpt;
@@ -216,6 +218,7 @@ enum TwitchCommand {
     Broadcast(&'static str),
     WordGuess,
     WordStonks,
+    Lights,
 }
 
 impl TwitchCommand {
@@ -442,6 +445,24 @@ impl TwitchCommand {
                     .await
                     .unwrap();
             }
+            TwitchCommand::Lights => {
+                let first_word = &msg.message_text[7..];
+                let first_word = match first_word.trim().split(" ").next() {
+                    None => return,
+                    Some(f) => f,
+                };
+                let re = Regex::new(r"^#(?:[0-9a-fA-F]{3}){1,2}$").unwrap();
+                if !re.is_match(&first_word) {
+                    return;
+                }
+                Command::new("hueadm")
+                    .arg("light")
+                    .arg("5")
+                    .arg(first_word)
+                    .output()
+                    .expect("failed to execute process");
+                return;
+            }
         }
     }
 
@@ -471,6 +492,7 @@ impl TwitchCommand {
             ("!nothing", _) => Some(TwitchCommand::ReplyWith("this commands does nothing!")),
             ("!wordstonks", _) => Some(TwitchCommand::WordStonks),
             ("!wordguess", _) => Some(TwitchCommand::WordGuess),
+            ("!lights", _) => Some(TwitchCommand::Lights),
             _ => None,
         }
     }
