@@ -799,15 +799,16 @@ impl TwitchCommand {
             TwitchCommand::WordGuess => {
                 let message = match &mut ctx.word_stonks_game {
                     None => {
-                        format!("@{}: No WordStonks game currently active! Start a game by typing !wordstonks",
-                                &msg.sender.login)
+                        return;
+                        // format!("@{}: No WordStonks game currently active! Start a game by typing !wordstonks",
+                        //         &msg.sender.login)
                     }
                     Some(game) => {
                         let command = &msg.message_text.trim().split(" ").next().unwrap();
                         let first_word =
                             &msg.message_text[command.len()..].trim().split(" ").next();
                         let message = match first_word {
-                            None => "Please specify which word you want to guess".to_owned(),
+                            None => return,
                             Some(word) => match game.guess(word) {
                                 GuessResult::Correct => {
                                     ctx.word_stonks_game = None;
@@ -815,30 +816,64 @@ impl TwitchCommand {
                                 }
                                 GuessResult::Incorrect(interval) => {
                                     format!(
-                                        "Wrong guess! The hidden word is between \"{}\" and \"{}\", the Hamming distance to your guess is: {}",
-                                        interval.lower_bound, interval.upper_bound, game.hamming_distance(String::from(*word))
+                                        "\"{}\" : \"{}\", Last guess: {} ({})",
+                                        interval.lower_bound, interval.upper_bound, *word, game.hamming_distance(String::from(*word))
                                     )
                                 }
-                                GuessResult::InvalidWord => {
-                                    format!("The word \"{}\" is not in my vocabulary", word)
-                                }
-                                GuessResult::OutOfRange => {
-                                    let interval = game.current_word_interval();
-                                    format!(
-                                        "The word \"{}\" is not between \"{}\" and \"{}\"",
-                                        word, interval.lower_bound, interval.upper_bound
-                                    )
-                                }
-                                GuessResult::GameOver(_) => String::from("The game is over"),
+                                _ => return,
+                                // GuessResult::InvalidWord => {
+                                //     format!("The word \"{}\" is not in my vocabulary", word)
+                                // }
+                                // GuessResult::OutOfRange => {
+                                //     let interval = game.current_word_interval();
+                                //     format!(
+                                //         "The word \"{}\" is not between \"{}\" and \"{}\"",
+                                //         word, interval.lower_bound, interval.upper_bound
+                                //     )
+                                // }
+                                // GuessResult::GameOver(_) => String::from("The game is over"),
                             },
                         };
-                        format!("@{}: {}", &msg.sender.login, message)
+                        message
+                        // format!("@{}:\n{}", &msg.sender.login, message)
                     }
                 };
-                ctx.twitch_irc_client
-                    .say(msg.channel_login, message)
+                // print to alanbox
+                let obs_client = match &ctx.obs_client {
+                    None => return,
+                    Some(c) => c,
+                };
+                let stonks_box = match &ctx
+                    .ferris_bot_config
+                    .obs
+                    .as_ref()
+                    .unwrap()
+                    .alan_box_sourceitem
+                {
+                    None => return,
+                    Some(g) => g,
+                };
+                let sources = obs_client.sources();
+
+                let alan_box = sources
+                    .get_source_settings::<serde_json::Value>(stonks_box, None)
+                    .await;
+                if let Err(e) = alan_box {
+                    eprintln!("Can't find OBS source {} for : {}", stonks_box, e);
+                    return;
+                }
+                let settings = alan_box.unwrap();
+
+                if let Err(e) = sources
+                    .set_source_settings::<serde_json::Value>(SourceSettings {
+                        source_name: &settings.source_name,
+                        source_type: Some(&settings.source_type),
+                        source_settings: &json!({ "text": message }),
+                    })
                     .await
-                    .unwrap();
+                {
+                    println!("Error while setting source settings: {}", e);
+                }
             }
         }
     }
