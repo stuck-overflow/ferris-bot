@@ -461,8 +461,8 @@ impl TwitchCommand {
                     None => return,
                     Some(f) => f,
                 };
-                let re = Regex::new(r"^#(?:[0-9a-fA-F]{3}){1,2}$").unwrap();
-                if !re.is_match(&first_word) {
+                let hex_colour_regex = Regex::new(r"^#(?:[0-9a-fA-F]{3}){1,2}$").unwrap();
+                if !hex_colour_regex.is_match(&first_word) {
                     return;
                 }
                 Command::new("hueadm")
