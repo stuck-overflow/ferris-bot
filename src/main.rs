@@ -94,7 +94,7 @@ pub async fn main() {
     // stored one before or it's unparsable, go through the authentication
     // workflow.
     if let Err(_) = token_storage.load_token().await {
-        let user_token = match twitch_oauth2_auth_flow::auth_flow(
+        let user_token = match twitch_oauth2_auth_flow::auth_flow_surf(
             &config.twitch.client_id,
             &config.twitch.secret,
             Some(vec![
