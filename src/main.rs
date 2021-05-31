@@ -26,6 +26,7 @@ use word_stonks::{GuessResult, WordStonksGame};
 struct FerrisBotConfig {
     twitch: TwitchConfig,
     queue_manager: Option<QueueManagerConfig>,
+    lights: Option<LightsConfig>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -41,6 +42,11 @@ struct TwitchConfig {
 struct QueueManagerConfig {
     capacity: usize,
     queue_storage: String,
+}
+
+#[derive(Clone, Deserialize)]
+struct LightsConfig {
+    light_id: u32,
 }
 
 // Command-line arguments for the tool.
@@ -446,6 +452,10 @@ impl TwitchCommand {
                     .unwrap();
             }
             TwitchCommand::Lights => {
+                let light_id = match &ctx.ferris_bot_config.lights {
+                    None => return,
+                    Some(lights) => lights.light_id,
+                };
                 let first_word = &msg.message_text[7..];
                 let first_word = match first_word.trim().split(" ").next() {
                     None => return,
@@ -457,7 +467,7 @@ impl TwitchCommand {
                 }
                 Command::new("hueadm")
                     .arg("light")
-                    .arg("5")
+                    .arg(light_id.to_string())
                     .arg(first_word)
                     .output()
                     .expect("failed to execute process");

@@ -8,3 +8,6 @@ token_filepath = '.twitchauthtoken.json'
 [queue_manager]
 capacity = 10
 queue_storage = 'queue_storage.json'
+
+[lights]
+light_id = 5
