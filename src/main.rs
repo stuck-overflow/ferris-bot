@@ -120,7 +120,7 @@ pub async fn main() {
     // If we have some errors while loading the stored token, e.g. if we never
     // stored one before or it's unparsable, go through the authentication
     // workflow.
-    if let Err(_) = token_storage.load_token().await {
+    if token_storage.load_token().await.is_err() {
         let user_token = match twitch_oauth2_auth_flow::auth_flow_surf(
             &config.twitch.client_id,
             &config.twitch.secret,
@@ -164,13 +164,10 @@ pub async fn main() {
         }
     };
 
-    let queue_manager = match &config.queue_manager {
-        None => None,
-        Some(cfg) => Some(Mutex::new(QueueManager::new(
-            cfg.capacity,
-            &cfg.queue_storage,
-        ))),
-    };
+    let queue_manager = config
+        .queue_manager
+        .as_ref()
+        .map(|cfg| Mutex::new(QueueManager::new(cfg.capacity, &cfg.queue_storage)));
 
     let mut context = Context {
         ferris_bot_config: config.clone(),
@@ -205,7 +202,7 @@ pub async fn main() {
     join_handle.await.unwrap();
 }
 
-async fn is_user_subscriber(ctx: &Context, user: &str, badges: &Vec<Badge>) -> bool {
+async fn is_user_subscriber(ctx: &Context, user: &str, badges: &[Badge]) -> bool {
     for b in badges {
         if b.name == "founder" || b.name == "subscriber" {
             return true;
@@ -233,7 +230,7 @@ async fn is_user_subscriber(ctx: &Context, user: &str, badges: &Vec<Badge>) -> b
     debug!("{:?}", req);
 
     match req {
-        Ok(r) => r.data.len() != 0,
+        Ok(r) => !r.data.is_empty(),
         Err(_) => false,
     }
 }
@@ -365,7 +362,7 @@ impl TwitchCommand {
                     None => return,
                     Some(q) => q,
                 };
-                if &msg.sender.login != &ctx.ferris_bot_config.twitch.channel_name {
+                if msg.sender.login != ctx.ferris_bot_config.twitch.channel_name {
                     return;
                 }
                 let result = queue_manager.lock().unwrap().next();
@@ -399,7 +396,7 @@ impl TwitchCommand {
                     Some(g) => g,
                 };
                 let alan_text = &msg.message_text[8..].trim();
-                if alan_text.len() == 0 {
+                if alan_text.is_empty() {
                     ctx.twitch_irc_client
                         .say(
                             msg.channel_login,
@@ -422,36 +419,36 @@ impl TwitchCommand {
                 let mut output = String::new();
                 let mut current_line;
                 let max_cols = 50;
-                for line in alan_text.split("\n") {
+                for line in alan_text.split('\n') {
                     if line.len() < max_cols {
-                        if output.len() > 0 {
-                            output.push_str("\n");
+                        if !output.is_empty() {
+                            output.push('\n');
                         }
                         output.push_str(&line);
                         continue;
                     }
                     current_line = String::new();
-                    for s in line.split(" ") {
-                        if (current_line.len() == 0) && (s.len() > max_cols) {
-                            if output.len() > 0 {
-                                output.push_str("\n");
+                    for s in line.split(' ') {
+                        if current_line.is_empty() && (s.len() > max_cols) {
+                            if !output.is_empty() {
+                                output.push('\n');
                             }
                             output.push_str(&s);
                             continue;
                         }
                         if (current_line.len() + 1 + s.len()) > max_cols {
-                            if output.len() > 0 {
-                                output.push_str("\n");
+                            if !output.is_empty() {
+                                output.push('\n');
                             }
                             output.push_str(&current_line);
                             current_line = s.to_string();
                         } else {
-                            current_line.push_str(" ");
+                            current_line.push(' ');
                             current_line.push_str(&s);
                         }
                     }
-                    if output.len() > 0 {
-                        output.push_str("\n");
+                    if output.is_empty() {
+                        output.push('\n');
                     }
                     output.push_str(&current_line);
                 }
@@ -492,7 +489,7 @@ impl TwitchCommand {
                     Some(giphy_config) => &giphy_config.api_key,
                 };
                 let query = &msg.message_text[4..].trim();
-                if query.len() == 0 {
+                if query.is_empty() {
                     ctx.twitch_irc_client
                         .say(
                             msg.channel_login,
@@ -514,7 +511,7 @@ impl TwitchCommand {
                     return;
                 }
                 let gif = gif.unwrap();
-                if gif.len() == 0 {
+                if gif.is_empty() {
                     ctx.twitch_irc_client
                         .say(
                             msg.channel_login,
@@ -544,8 +541,8 @@ impl TwitchCommand {
                 //https://giphy.com/gifs/g7GKcSzwQfugw
                 let settings = gifitem.unwrap();
 
-                let media = gif.rsplit("/").next().unwrap();
-                let media = media.rsplit("-").next().unwrap();
+                let media = gif.rsplit('/').next().unwrap();
+                let media = media.rsplit('-').next().unwrap();
                 let media_url = format!("https://i.giphy.com/media/{}/giphy.webp", media);
                 if let Err(e) = sources
                     .set_source_settings::<serde_json::Value>(SourceSettings {
@@ -559,7 +556,7 @@ impl TwitchCommand {
                 }
                 let scene = obs_client.scenes().get_current_scene().await.unwrap();
                 let gif_bot = scene.sources.iter().find(|item| &item.name == gif_source);
-                if let None = gif_bot {
+                if gif_bot.is_none() {
                     return;
                 }
 
@@ -569,10 +566,11 @@ impl TwitchCommand {
                     item: None,
                     render: true,
                 };
-                if let Err(_) = obs_client
+                if obs_client
                     .scene_items()
                     .set_scene_item_render(scene_item_render)
                     .await
+                    .is_err()
                 {
                     return;
                 }
@@ -593,15 +591,13 @@ impl TwitchCommand {
                 let source_settings = gifitem.unwrap().source_settings;
 
                 let url = source_settings.get("url");
-                if let None = url {
+                if url.is_none() {
                     eprintln!("No url attribute found: {:?}", url);
                     return;
                 }
                 let url = url.unwrap();
-                if url.is_string() {
-                    if url.as_str().unwrap() != media_url {
-                        return;
-                    }
+                if url.is_string() && url.as_str().unwrap() != media_url {
+                    return;
                 }
                 let scene_item_render = SceneItemRender {
                     scene_name: None,
@@ -609,10 +605,11 @@ impl TwitchCommand {
                     item: None,
                     render: false,
                 };
-                if let Err(_) = obs_client
+                if obs_client
                     .scene_items()
                     .set_scene_item_render(scene_item_render)
                     .await
+                    .is_err()
                 {
                     return;
                 }
@@ -681,7 +678,7 @@ impl TwitchCommand {
                     ctx.twitch_irc_client
                         .say(
                             msg.channel_login,
-                            format!("@{}: {}", &msg.sender.login, sounds.join(", ").to_owned()),
+                            format!("@{}: {}", &msg.sender.login, sounds.join(", ")),
                         )
                         .await
                         .unwrap();
@@ -727,7 +724,7 @@ impl TwitchCommand {
                     .sources
                     .iter()
                     .find(|item| item.name == "Audio_Source");
-                if let None = audio_source {
+                if audio_source.is_none() {
                     return;
                 }
 
@@ -737,10 +734,11 @@ impl TwitchCommand {
                     item: None,
                     render: true,
                 };
-                if let Err(_) = obs_client
+                if obs_client
                     .scene_items()
                     .set_scene_item_render(scene_item_render)
                     .await
+                    .is_err()
                 {
                     return;
                 }
@@ -750,14 +748,14 @@ impl TwitchCommand {
                     None => return,
                     Some(q) => q,
                 };
-                if &msg.sender.login != &ctx.ferris_bot_config.twitch.channel_name {
+                if msg.sender.login != ctx.ferris_bot_config.twitch.channel_name {
                     return;
                 }
-                let first_word = &msg.message_text[5..].trim().split(" ").next();
+                let first_word = &msg.message_text[5..].trim().split(' ').next();
                 let message = match first_word {
                     None => "Please specify which user to kick".to_owned(),
                     Some(word) => {
-                        let user = word.trim_start_matches("@").to_lowercase();
+                        let user = word.trim_start_matches('@').to_lowercase();
                         let result = queue_manager.lock().unwrap().kick(&user);
                         match result {
                             Err(QueueManagerLeaveError::UserNotInQueue) => {
@@ -806,9 +804,9 @@ impl TwitchCommand {
                         //         &msg.sender.login)
                     }
                     Some(game) => {
-                        let command = &msg.message_text.trim().split(" ").next().unwrap();
+                        let command = &msg.message_text.trim().split(' ').next().unwrap();
                         let first_word =
-                            &msg.message_text[command.len()..].trim().split(" ").next();
+                            &msg.message_text[command.len()..].trim().split(' ').next();
                         let message = match first_word {
                             None => return,
                             Some(word) => match game.guess(word) {
@@ -882,7 +880,7 @@ impl TwitchCommand {
             }
             TwitchCommand::Lights => {
                 let first_word = &msg.message_text[7..];
-                let first_word = match first_word.trim().split(" ").next() {
+                let first_word = match first_word.trim().split(' ').next() {
                     None => return,
                     Some(f) => f,
                 };
