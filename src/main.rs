@@ -5,8 +5,10 @@ mod word_stonks;
 use itertools::join;
 use log::{debug, trace, LevelFilter};
 use queue_manager::{QueueManager, QueueManagerJoinError, QueueManagerLeaveError};
+use regex::Regex;
 use serde::Deserialize;
 use simple_logger::SimpleLogger;
+use std::process::Command;
 use std::sync::Mutex;
 use std::{fs, str};
 use structopt::StructOpt;
@@ -24,6 +26,7 @@ use word_stonks::{GuessResult, WordStonksGame};
 struct FerrisBotConfig {
     twitch: TwitchConfig,
     queue_manager: Option<QueueManagerConfig>,
+    lights: Option<LightsConfig>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -39,6 +42,11 @@ struct TwitchConfig {
 struct QueueManagerConfig {
     capacity: usize,
     queue_storage: String,
+}
+
+#[derive(Clone, Deserialize)]
+struct LightsConfig {
+    light_id: u32,
 }
 
 // Command-line arguments for the tool.
@@ -213,6 +221,7 @@ enum TwitchCommand {
     Broadcast(&'static str),
     WordGuess,
     WordStonks,
+    Lights,
 }
 
 impl TwitchCommand {
@@ -439,6 +448,28 @@ impl TwitchCommand {
                     .await
                     .unwrap();
             }
+            TwitchCommand::Lights => {
+                let light_id = match &ctx.ferris_bot_config.lights {
+                    None => return,
+                    Some(lights) => lights.light_id,
+                };
+                let first_word = &msg.message_text[7..];
+                let first_word = match first_word.trim().split(' ').next() {
+                    None => return,
+                    Some(f) => f,
+                };
+                let hex_colour_regex = Regex::new(r"^#(?:[0-9a-fA-F]{3}){1,2}$").unwrap();
+                if !hex_colour_regex.is_match(&first_word) {
+                    return;
+                }
+                Command::new("hueadm")
+                    .arg("light")
+                    .arg(light_id.to_string())
+                    .arg(first_word)
+                    .output()
+                    .expect("failed to execute process");
+                return;
+            }
         }
     }
 
@@ -468,6 +499,7 @@ impl TwitchCommand {
             ("!nothing", _) => Some(TwitchCommand::ReplyWith("this commands does nothing!")),
             ("!wordstonks", _) => Some(TwitchCommand::WordStonks),
             ("!wordguess", _) => Some(TwitchCommand::WordGuess),
+            ("!lights", _) => Some(TwitchCommand::Lights),
             _ => None,
         }
     }
