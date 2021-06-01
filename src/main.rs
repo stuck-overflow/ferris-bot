@@ -454,7 +454,7 @@ impl TwitchCommand {
                     Some(lights) => lights.light_id,
                 };
                 let first_word = &msg.message_text[7..];
-                let first_word = match first_word.trim().split(" ").next() {
+                let first_word = match first_word.trim().split(' ').next() {
                     None => return,
                     Some(f) => f,
                 };
