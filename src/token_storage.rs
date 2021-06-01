@@ -52,10 +52,9 @@ impl StoredUserToken {
     }
 
     fn to_twitch_oauth2_user_token(&self) -> twitch_oauth2::UserToken {
-        let expires_in = match self.expires_at {
-            Some(exp) => Some(exp.signed_duration_since(Utc::now()).to_std().unwrap()),
-            None => None,
-        };
+        let expires_in = self
+            .expires_at
+            .map(|exp| exp.signed_duration_since(Utc::now()).to_std().unwrap());
         twitch_oauth2::UserToken::from_existing_unchecked(
             self.access_token.clone(),
             self.refresh_token.clone(),

@@ -33,9 +33,9 @@ impl WordStonksGame {
             lower_bound: "zzzzzz".to_owned(),
             upper_bound: "aaaaaa".to_owned(),
         };
-        for word in vocabulary_txt.split("\n") {
+        for word in vocabulary_txt.split('\n') {
             let word = word.to_lowercase();
-            if word.len() == 0 {
+            if word.is_empty() {
                 continue;
             }
             if word < initial_word_interval.lower_bound {

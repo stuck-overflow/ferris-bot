@@ -76,7 +76,7 @@ impl QueueManager {
     }
 
     pub fn next(&mut self) -> Option<String> {
-        let res = if self.queue_subscribers.len() > 0 {
+        let res = if !self.queue_subscribers.is_empty() {
             self.queue_subscribers.pop_front()
         } else {
             self.queue_users.pop_front()
