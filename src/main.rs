@@ -99,7 +99,7 @@ pub async fn main() {
     // If we have some errors while loading the stored token, e.g. if we never
     // stored one before or it's unparsable, go through the authentication
     // workflow.
-    if let Err(_) = token_storage.load_token().await {
+    if token_storage.load_token().await.is_err() {
         let user_token = match twitch_oauth2_auth_flow::auth_flow_surf(
             &config.twitch.client_id,
             &config.twitch.secret,
@@ -133,13 +133,10 @@ pub async fn main() {
 
     let (mut incoming_messages, twitch_irc_client) =
         TwitchIRCClient::<TCPTransport, _>::new(irc_config);
-    let queue_manager = match &config.queue_manager {
-        None => None,
-        Some(cfg) => Some(Mutex::new(QueueManager::new(
-            cfg.capacity,
-            &cfg.queue_storage,
-        ))),
-    };
+    let queue_manager = config
+        .queue_manager
+        .as_ref()
+        .map(|cfg| Mutex::new(QueueManager::new(cfg.capacity, &cfg.queue_storage)));
     let mut context = Context {
         ferris_bot_config: config.clone(),
         queue_manager,
@@ -172,7 +169,7 @@ pub async fn main() {
     join_handle.await.unwrap();
 }
 
-async fn is_user_subscriber(ctx: &Context, user: &str, badges: &Vec<Badge>) -> bool {
+async fn is_user_subscriber(ctx: &Context, user: &str, badges: &[Badge]) -> bool {
     for b in badges {
         if b.name == "founder" || b.name == "subscriber" {
             return true;
@@ -200,7 +197,7 @@ async fn is_user_subscriber(ctx: &Context, user: &str, badges: &Vec<Badge>) -> b
     debug!("{:?}", req);
 
     match req {
-        Ok(r) => r.data.len() != 0,
+        Ok(r) => !r.data.is_empty(),
         Err(_) => false,
     }
 }
@@ -335,7 +332,7 @@ impl TwitchCommand {
                     }
                     Some(q) => q,
                 };
-                if &msg.sender.login != &ctx.ferris_bot_config.twitch.channel_name {
+                if msg.sender.login != ctx.ferris_bot_config.twitch.channel_name {
                     return;
                 }
                 let result = queue_manager.lock().unwrap().next();
@@ -360,15 +357,15 @@ impl TwitchCommand {
                     }
                     Some(q) => q,
                 };
-                if &msg.sender.login != &ctx.ferris_bot_config.twitch.channel_name {
+                if msg.sender.login != ctx.ferris_bot_config.twitch.channel_name {
                     return;
                 }
 
-                let first_word = &msg.message_text[5..].trim().split(" ").next();
+                let first_word = &msg.message_text[5..].trim().split(' ').next();
                 let message = match first_word {
                     None => "Please specify which user to kick".to_owned(),
                     Some(word) => {
-                        let user = word.trim_start_matches("@").to_lowercase();
+                        let user = word.trim_start_matches('@').to_lowercase();
                         let result = queue_manager.lock().unwrap().kick(&user);
                         match result {
                             Err(QueueManagerLeaveError::UserNotInQueue) => {
@@ -416,7 +413,7 @@ impl TwitchCommand {
                                 &msg.sender.login)
                     }
                     Some(game) => {
-                        let first_word = &msg.message_text[10..].trim().split(" ").next();
+                        let first_word = &msg.message_text[10..].trim().split(' ').next();
                         let message = match first_word {
                             None => "Please specify which word you want to guess".to_owned(),
                             Some(word) => match game.guess(word) {
