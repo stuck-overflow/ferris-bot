@@ -48,6 +48,7 @@ struct ObsConfig {
     alan_box_sourceitem: Option<String>,
     audio_folder: Option<PathBuf>,
     sounds: Option<Vec<String>>,
+    lights: Option<LightsConfig>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -68,6 +69,11 @@ struct GiphyConfig {
 struct QueueManagerConfig {
     capacity: usize,
     queue_storage: String,
+}
+
+#[derive(Clone, Deserialize)]
+struct LightsConfig {
+    light_id: u32,
 }
 
 // Command-line arguments for the tool.
@@ -751,6 +757,7 @@ impl TwitchCommand {
                 if msg.sender.login != ctx.ferris_bot_config.twitch.channel_name {
                     return;
                 }
+
                 let first_word = &msg.message_text[5..].trim().split(' ').next();
                 let message = match first_word {
                     None => "Please specify which user to kick".to_owned(),
@@ -891,6 +898,28 @@ impl TwitchCommand {
                 Command::new("hueadm")
                     .arg("light")
                     .arg("5")
+                    .arg(first_word)
+                    .output()
+                    .expect("failed to execute process");
+                return;
+            }
+            TwitchCommand::Lights => {
+                let light_id = match &ctx.ferris_bot_config.lights {
+                    None => return,
+                    Some(lights) => lights.light_id,
+                };
+                let first_word = &msg.message_text[7..];
+                let first_word = match first_word.trim().split(' ').next() {
+                    None => return,
+                    Some(f) => f,
+                };
+                let hex_colour_regex = Regex::new(r"^#(?:[0-9a-fA-F]{3}){1,2}$").unwrap();
+                if !hex_colour_regex.is_match(&first_word) {
+                    return;
+                }
+                Command::new("hueadm")
+                    .arg("light")
+                    .arg(light_id.to_string())
                     .arg(first_word)
                     .output()
                     .expect("failed to execute process");

@@ -9,6 +9,7 @@ token_filepath = '.twitchauthtoken.json'
 capacity = 10
 queue_storage = 'queue_storage.json'
 
+<<<<<<< HEAD
 [giphy]
 api_key = 'YOUR_GIPHY_API_KEY'
 
@@ -32,3 +33,7 @@ alan_box_sourceitem = 'Alan Box'
 # Set a folder which contains all your sound samples
 audio_folder = '/home/ed/obs/audio/'
 sounds = ['pizza', 'waa', 'wine', 'elcodigo', 'horn', 'go', 'thoosly']
+=======
+[lights]
+light_id = 5
+>>>>>>> origin/main
