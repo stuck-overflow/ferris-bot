@@ -1,4 +1,4 @@
-[twitch]
+[twitch] 
 login_name = 'your_bot_name'
 channel_name = 'stuck_overflow'
 client_id = 'YOURCLIENTID'
@@ -8,6 +8,30 @@ token_filepath = '.twitchauthtoken.json'
 [queue_manager]
 capacity = 10
 queue_storage = 'queue_storage.json'
+
+[giphy]
+api_key = 'YOUR_GIPHY_API_KEY'
+
+#Configuration settings for obs related features
+[obs]
+host = 'localhost'
+port = 4444
+password = 'STUCKER'
+
+# If set, this is the source used to display a GIF when requested with the !gif
+# command. This source should be of type browser source.
+gif_source = 'GifBot'
+
+# If set, the !switchscreen command will alternate between the two OBS scenes
+# in scene_1 and scene_2.
+scene_1 = 'Fisken'
+scene_2 = 'Dario'
+
+alan_box_sourceitem = 'Alan Box'
+
+# Set a folder which contains all your sound samples
+audio_folder = '/home/ed/obs/audio/'
+sounds = ['pizza', 'waa', 'wine', 'elcodigo', 'horn', 'go', 'thoosly']
 
 [lights]
 light_id = 5

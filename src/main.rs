@@ -2,17 +2,24 @@ mod queue_manager;
 mod token_storage;
 mod word_stonks;
 
+use giphy_api::Giphy;
 use itertools::join;
 use log::{debug, trace, LevelFilter};
+use obws::requests::{SceneItemRender, SourceSettings};
+use obws::Client;
 use queue_manager::{QueueManager, QueueManagerJoinError, QueueManagerLeaveError};
 use regex::Regex;
 use serde::Deserialize;
+use serde_json::json;
 use simple_logger::SimpleLogger;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
+use std::time::Duration;
 use std::{fs, str};
 use structopt::StructOpt;
 use token_storage::CustomTokenStorage;
+use tokio_compat_02::FutureExt;
 use twitch_api2::helix::subscriptions::GetBroadcasterSubscriptionsRequest;
 use twitch_api2::helix::users::GetUsersRequest;
 use twitch_api2::twitch_oauth2::Scope;
@@ -25,8 +32,24 @@ use word_stonks::{GuessResult, WordStonksGame};
 #[derive(Clone, Deserialize)]
 struct FerrisBotConfig {
     twitch: TwitchConfig,
+    giphy: Option<GiphyConfig>,
     queue_manager: Option<QueueManagerConfig>,
+    obs: Option<ObsConfig>,
     lights: Option<LightsConfig>,
+}
+
+#[derive(Clone, Deserialize)]
+struct ObsConfig {
+    host: String,
+    port: u16,
+    password: String,
+    gif_source: Option<String>,
+    scene_1: Option<String>,
+    scene_2: Option<String>,
+    scene_3: Option<String>,
+    alan_box_sourceitem: Option<String>,
+    audio_folder: Option<PathBuf>,
+    sounds: Option<Vec<String>>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -36,6 +59,11 @@ struct TwitchConfig {
     channel_name: String,
     client_id: String,
     secret: String,
+}
+
+#[derive(Clone, Deserialize)]
+struct GiphyConfig {
+    api_key: String,
 }
 
 #[derive(Clone, Deserialize)]
@@ -133,16 +161,28 @@ pub async fn main() {
 
     let (mut incoming_messages, twitch_irc_client) =
         TwitchIRCClient::<TCPTransport, _>::new(irc_config);
+
+    let obs_client = match &config.obs {
+        None => None,
+        Some(obs_cfg) => {
+            let client = Client::connect(&obs_cfg.host, obs_cfg.port).await.unwrap();
+            client.login(Some(&obs_cfg.password)).await.unwrap();
+            Some(client)
+        }
+    };
+
     let queue_manager = config
         .queue_manager
         .as_ref()
         .map(|cfg| Mutex::new(QueueManager::new(cfg.capacity, &cfg.queue_storage)));
+
     let mut context = Context {
         ferris_bot_config: config.clone(),
-        queue_manager,
         twitch_irc_client,
+        queue_manager,
         token_storage,
         word_stonks_game: None,
+        obs_client,
     };
 
     // join a channel
@@ -208,6 +248,7 @@ struct Context {
     queue_manager: Option<Mutex<QueueManager>>,
     token_storage: CustomTokenStorage,
     word_stonks_game: Option<WordStonksGame>,
+    obs_client: Option<Client>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -217,6 +258,10 @@ enum TwitchCommand {
     Leave,
     Next,
     Kick,
+    Switch,
+    Gif,
+    Sound,
+    AlanBox,
     ReplyWith(&'static str),
     Broadcast(&'static str),
     WordGuess,
@@ -229,9 +274,7 @@ impl TwitchCommand {
         match self {
             TwitchCommand::Join => {
                 let queue_manager = match &ctx.queue_manager {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(q) => q,
                 };
 
@@ -266,9 +309,7 @@ impl TwitchCommand {
             }
             TwitchCommand::Queue => {
                 let queue_manager = match &ctx.queue_manager {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(q) => q,
                 };
 
@@ -304,9 +345,7 @@ impl TwitchCommand {
 
             TwitchCommand::Leave => {
                 let queue_manager = match &ctx.queue_manager {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(q) => q,
                 };
                 let result = queue_manager.lock().unwrap().leave(&msg.sender.login);
@@ -327,9 +366,7 @@ impl TwitchCommand {
             }
             TwitchCommand::Next => {
                 let queue_manager = match &ctx.queue_manager {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(q) => q,
                 };
                 if msg.sender.login != ctx.ferris_bot_config.twitch.channel_name {
@@ -350,11 +387,380 @@ impl TwitchCommand {
                     .await
                     .unwrap();
             }
+            TwitchCommand::AlanBox => {
+                let obs_client = match &ctx.obs_client {
+                    None => return,
+                    Some(c) => c,
+                };
+                let alan_box_sourceitem = match &ctx
+                    .ferris_bot_config
+                    .obs
+                    .as_ref()
+                    .unwrap()
+                    .alan_box_sourceitem
+                {
+                    None => return,
+                    Some(g) => g,
+                };
+                let alan_text = &msg.message_text[8..].trim();
+                if alan_text.is_empty() {
+                    ctx.twitch_irc_client
+                        .say(
+                            msg.channel_login,
+                            format!(
+                                "@{}: {}",
+                                &msg.sender.login,
+                                "Leave a message to Alan!".to_owned()
+                            ),
+                        )
+                        .await
+                        .unwrap();
+                    return;
+                }
+
+                // Create new lines if input by user.
+                let re = Regex::new(r#"\\n"#).unwrap();
+                let alan_text = re.replace_all(alan_text, "\n");
+
+                // Parse the lines and wrap every line at max_cols characters.
+                let mut output = String::new();
+                let mut current_line;
+                let max_cols = 100;
+                for line in alan_text.split('\n') {
+                    if line.len() < max_cols {
+                        if !output.is_empty() {
+                            output.push_str("\n");
+                        }
+                        output.push_str(&line);
+                        continue;
+                    }
+                    current_line = String::new();
+                    for s in line.split(' ') {
+                        if current_line.is_empty() && (s.len() > max_cols) {
+                            if !output.is_empty() {
+                                output.push_str("\n");
+                            }
+                            output.push_str(&s);
+                            continue;
+                        }
+                        if (current_line.len() + 1 + s.len()) > max_cols {
+                            if !output.is_empty() {
+                                output.push_str("\n");
+                            }
+                            output.push_str(&current_line);
+                            current_line = s.to_string();
+                        } else {
+                            current_line.push(' ');
+                            current_line.push_str(&s);
+                        }
+                    }
+                    if output.is_empty() {
+                        output.push_str("\n");
+                    }
+                    output.push_str(&current_line);
+                }
+                // Get a list of available scenes and print them out.
+                let sources = obs_client.sources();
+                let alan_box = sources
+                    .get_source_settings::<serde_json::Value>(alan_box_sourceitem, None)
+                    .await;
+                if let Err(e) = alan_box {
+                    eprintln!("Can't find OBS source {} for : {}", &alan_box_sourceitem, e);
+                    return;
+                }
+                let settings = alan_box.unwrap();
+
+                if let Err(e) = sources
+                    .set_source_settings::<serde_json::Value>(SourceSettings {
+                        source_name: &settings.source_name,
+                        source_type: Some(&settings.source_type),
+                        source_settings: &json!({ "text": output }),
+                    })
+                    .await
+                {
+                    println!("Error while setting source settings: {}", e);
+                }
+            }
+            TwitchCommand::Gif => {
+                let obs_client = match &ctx.obs_client {
+                    None => return,
+                    Some(c) => c,
+                };
+                let gif_source = match &ctx.ferris_bot_config.obs.as_ref().unwrap().gif_source {
+                    None => return,
+                    Some(g) => g,
+                };
+
+                let api_key = match &ctx.ferris_bot_config.giphy {
+                    None => return,
+                    Some(giphy_config) => &giphy_config.api_key,
+                };
+                let query = &msg.message_text[4..].trim();
+                if query.is_empty() {
+                    ctx.twitch_irc_client
+                        .say(
+                            msg.channel_login,
+                            format!(
+                                "@{}: {}",
+                                &msg.sender.login,
+                                "Enter a word to search for a gif".to_owned()
+                            ),
+                        )
+                        .await
+                        .unwrap();
+                    return;
+                }
+
+                let giphy_client = Giphy::new(api_key);
+                let gif = giphy_client.search_gifs(query, 5, "pg-13").compat().await;
+                if let Err(e) = gif {
+                    println!("error {}", e);
+                    return;
+                }
+                let gif = gif.unwrap();
+                if gif.is_empty() {
+                    ctx.twitch_irc_client
+                        .say(
+                            msg.channel_login,
+                            format!("@{}: No results for query: {}", &msg.sender.login, query),
+                        )
+                        .await
+                        .unwrap();
+                    return;
+                }
+                let gif = &gif[0].url;
+
+                // Get a list of available scenes and print them out.
+                let sources = obs_client.sources();
+                let gifitem = sources
+                    .get_source_settings::<serde_json::Value>(gif_source, None)
+                    .await;
+                if let Err(e) = gifitem {
+                    eprintln!(
+                        "Can't find OBS source {} for Gif display: {}",
+                        &gif_source, e
+                    );
+                    return;
+                }
+                dbg!(&gifitem);
+                //https://media.giphy.com/media/g7GKcSzwQfugw/giphy.gif
+                //https://giphy.com/gifs/rick-roll-g7GKcSzwQfugw
+                //https://giphy.com/gifs/g7GKcSzwQfugw
+                let settings = gifitem.unwrap();
+
+                let media = gif.rsplit('/').next().unwrap();
+                let media = media.rsplit('-').next().unwrap();
+                let media_url = format!("https://i.giphy.com/media/{}/giphy.webp", media);
+                if let Err(e) = sources
+                    .set_source_settings::<serde_json::Value>(SourceSettings {
+                        source_name: &settings.source_name,
+                        source_type: Some(&settings.source_type),
+                        source_settings: &json!({ "url": media_url }),
+                    })
+                    .await
+                {
+                    println!("Error while setting source settings: {}", e);
+                }
+                let scene = obs_client.scenes().get_current_scene().await.unwrap();
+                let gif_bot = scene.sources.iter().find(|item| &item.name == gif_source);
+                if gif_bot.is_none() {
+                    return;
+                }
+
+                let scene_item_render = SceneItemRender {
+                    scene_name: None,
+                    source: gif_source,
+                    item: None,
+                    render: true,
+                };
+                if obs_client
+                    .scene_items()
+                    .set_scene_item_render(scene_item_render)
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
+
+                let sources = obs_client.sources();
+                let gifitem = sources
+                    .get_source_settings::<serde_json::Value>(gif_source, None)
+                    .await;
+                if let Err(e) = gifitem {
+                    eprintln!(
+                        "Can't find OBS source {} for Gif display: {}",
+                        &gif_source, e
+                    );
+                    return;
+                }
+
+                let source_settings = gifitem.unwrap().source_settings;
+
+                let url = source_settings.get("url");
+                if url.is_none() {
+                    eprintln!("No url attribute found: {:?}", url);
+                    return;
+                }
+                let url = url.unwrap();
+                if url.is_string() && url.as_str().unwrap() != media_url {
+                    return;
+                }
+                let scene_item_render = SceneItemRender {
+                    scene_name: None,
+                    source: &gif_source,
+                    item: None,
+                    render: false,
+                };
+                if obs_client
+                    .scene_items()
+                    .set_scene_item_render(scene_item_render)
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+
+            TwitchCommand::Switch => {
+                let obs_client = match &ctx.obs_client {
+                    None => return,
+                    Some(c) => c,
+                };
+                let obs = &ctx.ferris_bot_config.obs.as_ref().unwrap();
+                let (scene_1, scene_2, scene_3) = match obs
+                    .scene_1
+                    .as_ref()
+                    .zip(obs.scene_2.as_ref())
+                    .zip(obs.scene_3.as_ref())
+                    .map(|((x, y), z)| (x, y, z))
+                {
+                    None => return,
+                    Some(pair) => pair,
+                };
+
+                // Get a list of available scenes and print them out.
+                let scene = obs_client.scenes().get_current_scene().await.unwrap();
+
+                let next_scene;
+                if &scene.name == scene_1 {
+                    next_scene = scene_2;
+                } else if &scene.name == scene_2 {
+                    next_scene = scene_3;
+                } else if &scene.name == scene_3 {
+                    next_scene = scene_1;
+                } else {
+                    return;
+                }
+
+                let set_scene = obs_client.scenes().set_current_scene(next_scene).await;
+                if let Err(e) = set_scene {
+                    eprintln!("Error while changing scene: {}", e);
+                    return;
+                }
+                ctx.twitch_irc_client
+                    .say(
+                        msg.channel_login,
+                        format!("Screen switched to {}", next_scene),
+                    )
+                    .await
+                    .unwrap();
+            }
+
+            TwitchCommand::Sound => {
+                let obs_client = match &ctx.obs_client {
+                    None => return,
+                    Some(c) => c,
+                };
+
+                let obs = &ctx.ferris_bot_config.obs.as_ref().unwrap();
+                let directory = match &obs.audio_folder {
+                    None => return,
+                    Some(d) => d,
+                };
+                let sounds = match &obs.sounds {
+                    None => return,
+                    Some(s) => {
+                        if s.is_empty() {
+                            return;
+                        }
+                        s
+                    }
+                };
+
+                let query = &msg.message_text[6..].trim();
+                if query.is_empty() {
+                    ctx.twitch_irc_client
+                        .say(
+                            msg.channel_login,
+                            format!("@{}: {}", &msg.sender.login, sounds.join(", ")),
+                        )
+                        .await
+                        .unwrap();
+                    return;
+                }
+
+                dbg!(&directory);
+                let sound = query.to_lowercase();
+                let sound = match Path::new(&sound).file_name() {
+                    None => return,
+                    Some(s) => s,
+                };
+                dbg!(&sounds);
+                let sound_path = Path::new(directory).join(sound).with_extension("mp3");
+                dbg!(&sound_path);
+
+                // Get a list of available scenes and print them out.
+                //let scene = client.scenes().get_current_scene().await.unwrap();
+                let sources = obs_client.sources();
+                let audio_source = sources
+                    .get_source_settings::<serde_json::Value>("Audio_Source", None)
+                    .await;
+                if let Err(e) = audio_source {
+                    println!("Can't find Audio_Source source: {}", e);
+                    return;
+                }
+                dbg!(&audio_source);
+                let settings = audio_source.unwrap();
+                let sound_path = sound_path.to_str().unwrap();
+                if let Err(e) = sources
+                    .set_source_settings::<serde_json::Value>(SourceSettings {
+                        source_name: &settings.source_name,
+                        source_type: Some(&settings.source_type),
+                        source_settings: &json!({ "local_file": sound_path }),
+                    })
+                    .await
+                {
+                    println!("Error while setting source settings: {}", e);
+                }
+                let scene = obs_client.scenes().get_current_scene().await.unwrap();
+
+                let audio_source = scene
+                    .sources
+                    .iter()
+                    .find(|item| item.name == "Audio_Source");
+                if audio_source.is_none() {
+                    return;
+                }
+
+                let scene_item_render = SceneItemRender {
+                    scene_name: None,
+                    source: "Audio_Source",
+                    item: None,
+                    render: true,
+                };
+                if obs_client
+                    .scene_items()
+                    .set_scene_item_render(scene_item_render)
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
             TwitchCommand::Kick => {
                 let queue_manager = match &ctx.queue_manager {
-                    None => {
-                        return;
-                    }
+                    None => return,
                     Some(q) => q,
                 };
                 if msg.sender.login != ctx.ferris_bot_config.twitch.channel_name {
@@ -409,13 +815,16 @@ impl TwitchCommand {
             TwitchCommand::WordGuess => {
                 let message = match &mut ctx.word_stonks_game {
                     None => {
-                        format!("@{}: No WordStonks game currently active! Start a game by typing !wordstonks",
-                                &msg.sender.login)
+                        return;
+                        // format!("@{}: No WordStonks game currently active! Start a game by typing !wordstonks",
+                        //         &msg.sender.login)
                     }
                     Some(game) => {
-                        let first_word = &msg.message_text[10..].trim().split(' ').next();
+                        let command = &msg.message_text.trim().split(' ').next().unwrap();
+                        let first_word =
+                            &msg.message_text[command.len()..].trim().split(' ').next();
                         let message = match first_word {
-                            None => "Please specify which word you want to guess".to_owned(),
+                            None => return,
                             Some(word) => match game.guess(word) {
                                 GuessResult::Correct => {
                                     ctx.word_stonks_game = None;
@@ -423,30 +832,85 @@ impl TwitchCommand {
                                 }
                                 GuessResult::Incorrect(interval) => {
                                     format!(
-                                        "Wrong guess! The hidden word is between \"{}\" and \"{}\", the Hamming distance to your guess is: {}",
-                                        interval.lower_bound, interval.upper_bound, game.hamming_distance(String::from(*word))
+                                        "\"{}\" : \"{}\", Last guess: {} ({})",
+                                        interval.lower_bound,
+                                        interval.upper_bound,
+                                        *word,
+                                        game.hamming_distance(String::from(*word))
                                     )
                                 }
-                                GuessResult::InvalidWord => {
-                                    format!("The word \"{}\" is not in my vocabulary", word)
-                                }
-                                GuessResult::OutOfRange => {
-                                    let interval = game.current_word_interval();
-                                    format!(
-                                        "The word \"{}\" is not between \"{}\" and \"{}\"",
-                                        word, interval.lower_bound, interval.upper_bound
-                                    )
-                                }
-                                GuessResult::GameOver(_) => String::from("The game is over"),
+                                _ => return,
+                                // GuessResult::InvalidWord => {
+                                //     format!("The word \"{}\" is not in my vocabulary", word)
+                                // }
+                                // GuessResult::OutOfRange => {
+                                //     let interval = game.current_word_interval();
+                                //     format!(
+                                //         "The word \"{}\" is not between \"{}\" and \"{}\"",
+                                //         word, interval.lower_bound, interval.upper_bound
+                                //     )
+                                // }
+                                // GuessResult::GameOver(_) => String::from("The game is over"),
                             },
                         };
-                        format!("@{}: {}", &msg.sender.login, message)
+                        message
+                        // format!("@{}:\n{}", &msg.sender.login, message)
                     }
                 };
-                ctx.twitch_irc_client
-                    .say(msg.channel_login, message)
+                // print to alanbox
+                let obs_client = match &ctx.obs_client {
+                    None => return,
+                    Some(c) => c,
+                };
+                let stonks_box = match &ctx
+                    .ferris_bot_config
+                    .obs
+                    .as_ref()
+                    .unwrap()
+                    .alan_box_sourceitem
+                {
+                    None => return,
+                    Some(g) => g,
+                };
+                let sources = obs_client.sources();
+
+                let alan_box = sources
+                    .get_source_settings::<serde_json::Value>(stonks_box, None)
+                    .await;
+                if let Err(e) = alan_box {
+                    eprintln!("Can't find OBS source {} for : {}", stonks_box, e);
+                    return;
+                }
+                let settings = alan_box.unwrap();
+
+                if let Err(e) = sources
+                    .set_source_settings::<serde_json::Value>(SourceSettings {
+                        source_name: &settings.source_name,
+                        source_type: Some(&settings.source_type),
+                        source_settings: &json!({ "text": message }),
+                    })
                     .await
-                    .unwrap();
+                {
+                    println!("Error while setting source settings: {}", e);
+                }
+            }
+            TwitchCommand::Lights => {
+                let first_word = &msg.message_text[7..];
+                let first_word = match first_word.trim().split(' ').next() {
+                    None => return,
+                    Some(f) => f,
+                };
+                let re = Regex::new(r"^#(?:[0-9a-fA-F]{3}){1,2}$").unwrap();
+                if !re.is_match(&first_word) {
+                    return;
+                }
+                Command::new("hueadm")
+                    .arg("light")
+                    .arg("5")
+                    .arg(first_word)
+                    .output()
+                    .expect("failed to execute process");
+                return;
             }
             TwitchCommand::Lights => {
                 let light_id = match &ctx.ferris_bot_config.lights {
@@ -495,10 +959,15 @@ impl TwitchCommand {
                 "../assets/bazylia.txt"
             ))),
             ("!zoya", _) => Some(TwitchCommand::Broadcast(include_str!("../assets/zoya.txt"))),
-            ("!discord", _) => Some(TwitchCommand::Broadcast("https://discord.gg/UyrsFX7N")),
+            ("!discord", _) => Some(TwitchCommand::Broadcast("https://discord.gg/RhpnmgWQyu")),
             ("!nothing", _) => Some(TwitchCommand::ReplyWith("this commands does nothing!")),
+            ("!alanbox", _) => Some(TwitchCommand::AlanBox),
+            ("!switchscreen", _) => Some(TwitchCommand::Switch),
+            ("!gif", _) => Some(TwitchCommand::Gif),
+            ("!sound", _) => Some(TwitchCommand::Sound),
             ("!wordstonks", _) => Some(TwitchCommand::WordStonks),
             ("!wordguess", _) => Some(TwitchCommand::WordGuess),
+            ("!wg", _) => Some(TwitchCommand::WordGuess),
             ("!lights", _) => Some(TwitchCommand::Lights),
             _ => None,
         }

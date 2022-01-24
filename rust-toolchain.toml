@@ -1,0 +1,4 @@
+[toolchain]
+channel="nightly"
+components=["rustc","rustfmt"]
+profile="default"

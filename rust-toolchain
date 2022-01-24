@@ -1,4 +1,0 @@
-[toolchain]
-channel="nightly-2021-03-25"
-components=["rustfmt"]
-profile="default"
