@@ -35,6 +35,7 @@ struct FerrisBotConfig {
     giphy: Option<GiphyConfig>,
     queue_manager: Option<QueueManagerConfig>,
     obs: Option<ObsConfig>,
+    lights: Option<LightsConfig>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -45,10 +46,10 @@ struct ObsConfig {
     gif_source: Option<String>,
     scene_1: Option<String>,
     scene_2: Option<String>,
+    scene_3: Option<String>,
     alan_box_sourceitem: Option<String>,
     audio_folder: Option<PathBuf>,
     sounds: Option<Vec<String>>,
-    lights: Option<LightsConfig>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -424,11 +425,11 @@ impl TwitchCommand {
                 // Parse the lines and wrap every line at max_cols characters.
                 let mut output = String::new();
                 let mut current_line;
-                let max_cols = 50;
+                let max_cols = 100;
                 for line in alan_text.split('\n') {
                     if line.len() < max_cols {
                         if !output.is_empty() {
-                            output.push('\n');
+                            output.push_str("\n");
                         }
                         output.push_str(&line);
                         continue;
@@ -437,14 +438,14 @@ impl TwitchCommand {
                     for s in line.split(' ') {
                         if current_line.is_empty() && (s.len() > max_cols) {
                             if !output.is_empty() {
-                                output.push('\n');
+                                output.push_str("\n");
                             }
                             output.push_str(&s);
                             continue;
                         }
                         if (current_line.len() + 1 + s.len()) > max_cols {
                             if !output.is_empty() {
-                                output.push('\n');
+                                output.push_str("\n");
                             }
                             output.push_str(&current_line);
                             current_line = s.to_string();
@@ -454,7 +455,7 @@ impl TwitchCommand {
                         }
                     }
                     if output.is_empty() {
-                        output.push('\n');
+                        output.push_str("\n");
                     }
                     output.push_str(&current_line);
                 }
@@ -627,7 +628,13 @@ impl TwitchCommand {
                     Some(c) => c,
                 };
                 let obs = &ctx.ferris_bot_config.obs.as_ref().unwrap();
-                let (scene_1, scene_2) = match obs.scene_1.as_ref().zip(obs.scene_2.as_ref()) {
+                let (scene_1, scene_2, scene_3) = match obs
+                    .scene_1
+                    .as_ref()
+                    .zip(obs.scene_2.as_ref())
+                    .zip(obs.scene_3.as_ref())
+                    .map(|((x, y), z)| (x, y, z))
+                {
                     None => return,
                     Some(pair) => pair,
                 };
@@ -639,6 +646,8 @@ impl TwitchCommand {
                 if &scene.name == scene_1 {
                     next_scene = scene_2;
                 } else if &scene.name == scene_2 {
+                    next_scene = scene_3;
+                } else if &scene.name == scene_3 {
                     next_scene = scene_1;
                 } else {
                     return;
